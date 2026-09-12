@@ -155,6 +155,90 @@ personal.
 
 Si el dueño sale en 0, el vínculo no existe: revisa `select id, auth_user_id from customers`.
 
+## Transferencias y divisiones de gasto
+
+Lo que el usuario **hace** en la app: antes vivía en estado de React y se perdía al cerrarla.
+
+| Tabla | Quién escribe | Qué guarda |
+|---|---|---|
+| `transfers` | la app inserta, el engine completa | quién manda, a quién, cuánto, concepto, estado y el id que devolvió Nessie |
+| `split_requests` | la app | total, creador, código temporal y su expiración |
+| `split_participants` | la app y `join_split()` | la parte de cada quien y si ya pagó |
+
+Montos en `bigint` centavos en las tres, como en todo el esquema.
+
+### transfers
+
+`amount_cents` es **siempre positivo**: la dirección ya la dice `account_id`, que es la cuenta de
+donde sale el dinero. La copia con signo es la fila de `transactions` que la transferencia
+produce, y queda apuntada en `transfer.transaction_id`.
+
+El flujo tiene dos manos a propósito:
+
+1. La app inserta la fila en `pending`. Es lo único que puede hacer — hay policy de `insert` y de
+   `select`, ninguna de `update`.
+2. El engine llama a Nessie con el `service_role`, guarda `nessie_transfer_id`, enlaza
+   `transaction_id` y mueve `status` a `completed` o `failed` con `failure_reason`.
+
+Si el cliente pudiera escribir el estado podría dar por completada una transferencia que nunca
+salió del banco. Por eso no puede.
+
+Destino fuera del banco: deja `payee_account_id` en null y llena `payee_name`, `payee_bank` y
+`payee_last_four`.
+
+### split_requests y split_participants
+
+`code` es el código corto que teclea quien se une. Un índice único **parcial** impide que dos
+divisiones **abiertas** compartan código; una división ya liquidada conserva el suyo como
+historia y lo libera. Si el insert choca, la app genera otro código y reintenta.
+
+`paid` es una columna **generada** a partir de `paid_at`. Para marcar pagado escribes `paid_at`;
+`paid` no se escribe nunca y por eso no puede contradecir a la fecha.
+
+**Unirse no pasa por RLS.** Quien se une todavía no es participante, así que ninguna policy lo
+puede ver, y el código que teclea no es columna de la fila que se inserta. Va por función:
+
+```sql
+select * from public.join_split('4821', 'Beto');
+-- participant_id | split_id | total_cents | share_cents
+```
+
+Valida que el código sea de una división abierta y sin expirar, inserta al participante y
+reparte de nuevo. Unirse dos veces devuelve la misma fila en vez de duplicar.
+
+`public.rebalance_split(split_id)` divide `total_cents` en partes iguales y reparte el sobrante
+de centavo en centavo a quien llegó primero — la misma regla que `sharesFor()` en la app, para
+que las dos no difieran por un peso. `sum(share_cents)` siempre da `total_cents`.
+
+### La RLS de una división no es la de una transferencia
+
+Una transferencia es privada de quien la mandó: `owns_account(account_id)` y ya.
+
+Una división la ven **todos sus participantes**, no solo el creador, y un participante no es
+dueño de ninguna cuenta de esa división — `owns_account()` sola lo dejaría fuera. Por eso
+`public.can_see_split()` tiene dos mitades unidas por `or`: dueño de la cuenta **o** fila propia
+en `split_participants`.
+
+Marcar pagado necesita una tercera cosa. La RLS filtra **filas, no columnas**: la policy tiene
+que dejar a un participante actualizar su fila, y con eso sola también podría bajarse
+`share_cents` a un peso en una cena de mil. Se cierra con permisos de columna:
+
+```sql
+revoke update on split_participants from anon, authenticated;
+grant  update (paid_at, transfer_id) on split_participants to authenticated;
+```
+
+Comprobado: el `update` a `paid_at` pasa, el de `share_cents` responde
+`permiso denegado a la tabla split_participants`.
+
+Resumen de quién ve qué, con tres usuarios (A crea, B se une, C es ajeno):
+
+| | `split_requests` | `split_participants` | `transfers` de A |
+|---|---|---|---|
+| A (creador) | 1 | 2 | 1 |
+| B (participante) | 1 | 2 | 0 |
+| C (ajeno) | 0 | 0 | 0 |
+
 ## Resetear
 ```sql
 drop view if exists enriched_transactions;
