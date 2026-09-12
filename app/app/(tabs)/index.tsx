@@ -5,20 +5,14 @@ import { Link } from 'expo-router';
 import type { AnomalyAlert, AnomalySeverity, EnrichedTransaction } from '@contracts/types';
 
 import { Text } from '@/components/Themed';
-import { formatMonthName, localMonthKey } from '@/components/display';
-import {
-  Card,
-  Chip,
-  ErrorState,
-  LoadingState,
-  SectionTitle,
-  spacing,
-  usePalette,
-  type Palette,
-} from '@/components/ui';
+import { localMonthKey } from '@/components/display';
+import { Card } from '@/components/Card';
+import { ErrorState, LoadingState } from '@/components/ScreenState';
+import { Chip, SectionTitle, spacing } from '@/components/ui';
+import { usePalette, type Palette } from '@/components/palette';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
-import { formatCents } from '@/src/format';
+import { formatCents, formatMonthName } from '@/src/format';
 
 const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
   info: 'Aviso',
@@ -26,14 +20,14 @@ const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
   critical: 'Urgente',
 };
 
-function severityTone(p: Palette, severity: AnomalySeverity) {
-  if (severity === 'critical') return { background: p.criticalBg, color: p.critical };
-  if (severity === 'warning') return { background: p.warningBg, color: p.warning };
-  return { background: p.infoBg, color: p.info };
+function severityTone(palette: Palette, severity: AnomalySeverity) {
+  if (severity === 'critical') return { background: palette.dangerSoft, color: palette.danger };
+  if (severity === 'warning') return { background: palette.warningSoft, color: palette.warning };
+  return { background: palette.accentSoft, color: palette.accent };
 }
 
 export default function InicioScreen() {
-  const p = usePalette();
+  const palette = usePalette();
 
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
@@ -57,20 +51,20 @@ export default function InicioScreen() {
 
   return (
     <ScrollView
-      style={{ backgroundColor: p.background }}
+      style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}>
-      <Text style={[styles.greeting, { color: p.muted }]}>Hola, {customer.first_name}</Text>
+      <Text style={[styles.greeting, { color: palette.muted }]}>Hola, {customer.first_name}</Text>
 
       <Card>
-        <Text style={[styles.balanceLabel, { color: p.muted }]}>
+        <Text style={[styles.balanceLabel, { color: palette.muted }]}>
           {checking.nickname} ·· {checking.last_four}
         </Text>
-        <Text style={[styles.balance, { color: p.text }]}>{formatCents(checking.balance_cents)}</Text>
+        <Text style={styles.balance}>{formatCents(checking.balance_cents)}</Text>
         {savings ? (
-          <Box style={[styles.divider, { borderColor: p.border }]}>
-            <Text style={[styles.balanceSub, { color: p.muted }]}>{savings.nickname}</Text>
-            <Text style={[styles.balanceSubAmount, { color: p.text }]}>
+          <Box style={[styles.divider, { borderColor: palette.border }]}>
+            <Text style={[styles.balanceSub, { color: palette.muted }]}>{savings.nickname}</Text>
+            <Text style={styles.balanceSubAmount}>
               {formatCents(savings.balance_cents)}
             </Text>
           </Box>
@@ -91,8 +85,8 @@ export default function InicioScreen() {
       <Box style={styles.section}>
         <SectionTitle>Gasto de {formatMonthName(month.key)}</SectionTitle>
         <Card>
-          <Text style={[styles.balance, { color: p.text }]}>{formatCents(month.spent)}</Text>
-          <Text style={[styles.balanceLabel, { color: p.muted }]}>
+          <Text style={styles.balance}>{formatCents(month.spent)}</Text>
+          <Text style={[styles.balanceLabel, { color: palette.muted }]}>
             {month.count} {month.count === 1 ? 'movimiento' : 'movimientos'} · entradas{' '}
             {formatCents(month.income)}
           </Text>
@@ -102,7 +96,7 @@ export default function InicioScreen() {
       <Box style={styles.section}>
         <SectionTitle
           action={
-            <Link href="/movimientos" style={[styles.link, { color: p.accent }]}>
+            <Link href="/movimientos" style={[styles.link, { color: palette.accent }]}>
               Ver todos
             </Link>
           }>
@@ -110,26 +104,26 @@ export default function InicioScreen() {
         </SectionTitle>
         <Card>
           {month.topMerchants.length === 0 ? (
-            <Text style={[styles.balanceLabel, { color: p.muted }]}>
+            <Text style={[styles.balanceLabel, { color: palette.muted }]}>
               Todavía no hay compras este mes.
             </Text>
           ) : (
             month.topMerchants.map((merchant) => (
               <Box key={merchant.name} style={styles.merchantRow}>
                 <Box style={styles.merchantHead}>
-                  <Text numberOfLines={1} style={[styles.merchantName, { color: p.text }]}>
+                  <Text numberOfLines={1} style={styles.merchantName}>
                     {merchant.name}
                   </Text>
-                  <Text style={[styles.merchantAmount, { color: p.text }]}>
+                  <Text style={styles.merchantAmount}>
                     {formatCents(merchant.spent)}
                   </Text>
                 </Box>
-                <Box style={[styles.barTrack, { backgroundColor: p.chip }]}>
+                <Box style={[styles.barTrack, { backgroundColor: palette.track }]}>
                   <Box
                     style={[
                       styles.barFill,
                       {
-                        backgroundColor: p.accent,
+                        backgroundColor: palette.accent,
                         width: `${Math.round((merchant.spent / month.topMerchants[0].spent) * 100)}%`,
                       },
                     ]}
@@ -145,16 +139,16 @@ export default function InicioScreen() {
 }
 
 function AlertCard({ alert }: { alert: AnomalyAlert }) {
-  const p = usePalette();
-  const tone = severityTone(p, alert.severity);
+  const palette = usePalette();
+  const tone = severityTone(palette, alert.severity);
 
   return (
-    <Card style={{ borderColor: tone.color }}>
+    <Card accent={tone.color}>
       <Box style={styles.alertHead}>
-        <Text style={[styles.alertTitle, { color: p.text }]}>{alert.title}</Text>
+        <Text style={styles.alertTitle}>{alert.title}</Text>
         <Chip label={SEVERITY_LABELS[alert.severity]} tone={tone} />
       </Box>
-      <Text style={[styles.alertBody, { color: p.muted }]}>{alert.explanation}</Text>
+      <Text style={[styles.alertBody, { color: palette.muted }]}>{alert.explanation}</Text>
       {alert.suggested_action ? (
         <Text style={[styles.alertAction, { color: tone.color }]}>{alert.suggested_action}</Text>
       ) : null}

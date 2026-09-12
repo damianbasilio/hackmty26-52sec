@@ -10,7 +10,9 @@ import {
   formatSignedCents,
   localDayKey,
 } from '@/components/display';
-import { Chip, EmptyState, ErrorState, LoadingState, spacing, usePalette } from '@/components/ui';
+import { ErrorState, LoadingState } from '@/components/ScreenState';
+import { Chip, EmptyState, spacing } from '@/components/ui';
+import { usePalette } from '@/components/palette';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 
@@ -21,7 +23,7 @@ type Row =
 type Filter = MerchantCategory | 'all';
 
 export default function MovimientosScreen() {
-  const p = usePalette();
+  const palette = usePalette();
   const [filter, setFilter] = useState<Filter>('all');
 
   const { data, error, loading, reload } = useAsync(async () => {
@@ -63,7 +65,7 @@ export default function MovimientosScreen() {
   if (error) return <ErrorState message={error} onRetry={reload} />;
 
   return (
-    <View style={[styles.screen, { backgroundColor: p.background }]}>
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -97,8 +99,8 @@ export default function MovimientosScreen() {
         renderItem={({ item }) =>
           item.kind === 'day' ? (
             <Box style={styles.dayRow}>
-              <Text style={[styles.dayHeading, { color: p.muted }]}>{item.heading}</Text>
-              <Text style={[styles.dayTotal, { color: p.muted }]}>{formatSignedCents(item.total)}</Text>
+              <Text style={[styles.dayHeading, { color: palette.muted }]}>{item.heading}</Text>
+              <Text style={[styles.dayTotal, { color: palette.muted }]}>{formatSignedCents(item.total)}</Text>
             </Box>
           ) : (
             <TransactionRow txn={item.txn} />
@@ -110,26 +112,26 @@ export default function MovimientosScreen() {
 }
 
 function TransactionRow({ txn }: { txn: EnrichedTransaction }) {
-  const p = usePalette();
+  const palette = usePalette();
   const incoming = txn.amount_cents > 0;
 
   return (
-    <Box style={[styles.txnRow, { backgroundColor: p.card, borderColor: p.border }]}>
+    <Box style={[styles.txnRow, { backgroundColor: palette.surface, borderColor: palette.border }]}>
       <Box style={styles.txnMain}>
-        <Text numberOfLines={1} style={[styles.txnName, { color: p.text }]}>
+        <Text numberOfLines={1} style={styles.txnName}>
           {txn.merchant_display_name ?? txn.raw_description}
         </Text>
         <Box style={styles.txnMeta}>
-          <Text style={[styles.txnCategory, { color: p.muted }]}>{CATEGORY_LABELS[txn.category]}</Text>
+          <Text style={[styles.txnCategory, { color: palette.muted }]}>{CATEGORY_LABELS[txn.category]}</Text>
           {txn.is_recurring ? (
-            <Text style={[styles.txnTag, { color: p.muted, borderColor: p.border }]}>Recurrente</Text>
+            <Text style={[styles.txnTag, { color: palette.muted, borderColor: palette.border }]}>Recurrente</Text>
           ) : null}
           {txn.status === 'pending' ? (
-            <Text style={[styles.txnTag, { color: p.warning, borderColor: p.border }]}>Pendiente</Text>
+            <Text style={[styles.txnTag, { color: palette.warning, borderColor: palette.border }]}>Pendiente</Text>
           ) : null}
         </Box>
       </Box>
-      <Text style={[styles.txnAmount, { color: incoming ? p.positive : p.negative }]}>
+      <Text style={[styles.txnAmount, { color: incoming ? palette.positive : undefined }]}>
         {formatSignedCents(txn.amount_cents)}
       </Text>
     </Box>
