@@ -26,8 +26,25 @@ def scan(account_id: str) -> list[dict]:
 
     merchants = repository.fetch_merchants()
     subscriptions = detect_subscriptions(account_id, transactions, merchants)
+    existing = repository.fetch_anomaly_alerts(account_id, include_resolved=True)
+    existing_ids = {
+        row["transaction_id"]: row["id"]
+        for row in existing
+        if row["transaction_id"] and row["resolved_at"] is None
+    }
+    resolved_transaction_ids = {
+        row["transaction_id"] for row in existing if row["transaction_id"] and row["resolved_at"] is not None
+    }
 
-    alerts = scan_anomalies(account_id, transactions, merchants, subscriptions, datetime.now(timezone.utc))
+    alerts = scan_anomalies(
+        account_id,
+        transactions,
+        merchants,
+        subscriptions,
+        datetime.now(timezone.utc),
+        existing_ids,
+        resolved_transaction_ids,
+    )
     return repository.upsert_anomaly_alerts(alerts)
 
 
