@@ -11,7 +11,7 @@ this twice updates the same rows instead of duplicating them.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import nessie, repository
 from .enrichment import local_day_of_week, local_hour_of_day, normalize_merchant, population_zscores
@@ -22,6 +22,22 @@ _ACCOUNT_TYPE_MAP = {
     "savings": "savings",
     "credit card": "credit_card",
 }
+
+# Descriptors match enrichment.py's rules exactly, so the seeded data is
+# recognizable by every engine the same way the fixtures are.
+_SEED_RECURRING_PURCHASES = [
+    ("NETFLIX.COM MX", [(70, 199), (40, 199), (10, 239)]),
+    ("SPOTIFY MX P1A2B3", [(70, 119), (40, 119), (10, 119)]),
+    ("TELMEX PAGO FIJO 81XXXX", [(70, 639), (40, 639), (10, 639)]),
+    ("SMART FIT MEXICO SA", [(70, 449), (40, 449), (10, 449)]),
+]
+_SEED_VARIABLE_PURCHASES = [
+    ("OXXO TEC 4412 MTY", [(65, 87), (50, 62), (35, 94), (20, 73)]),
+    ("RAPPI MX CDMX", [(55, 315), (25, 249), (5, 334)]),
+    ("SORIANA HIPER CUMBRES", [(48, 1284), (18, 1152)]),
+]
+_SEED_DEPOSITS = [(75, 14250), (45, 14250), (15, 14250)]
+_SEED_TRANSFERS = [(75, 9500), (45, 9500), (15, 9500)]
 
 
 def sync_all() -> dict[str, int]:
@@ -38,6 +54,44 @@ def sync_all() -> dict[str, int]:
             synced["transactions"] += _sync_transactions(account["id"], nessie_account["_id"])
 
     return synced
+
+
+def seed_demo_data(now: datetime) -> dict:
+    """Creates one realistic demo customer + account + history directly in Nessie.
+
+    Nessie ships with none of our own key's customers — unlike Supabase, which
+    starts from /contracts/fixtures. Call this once before sync_all() has
+    anything to pull. Safe to call more than once, but each call adds a new
+    customer rather than topping up an existing one — Nessie has no
+    upsert-by-name, so re-running duplicates the demo data.
+    """
+    customer = nessie.create_customer(
+        "Ana Sofía",
+        "Treviño Garza",
+        {
+            "street_number": "100",
+            "street_name": "Av. Constitución",
+            "city": "Monterrey",
+            "state": "NL",
+            "zip": "64000",
+        },
+    )
+    account = nessie.create_account(customer["_id"], "Checking", "Cuenta de cheques", 23136)
+
+    def day(days_ago: int) -> str:
+        return (now - timedelta(days=days_ago)).date().isoformat()
+
+    for days_ago, amount in _SEED_DEPOSITS:
+        nessie.create_deposit(account["_id"], amount, day(days_ago), "DEPOSITO NOMINA TEC DEL NORTE")
+    for days_ago, amount in _SEED_TRANSFERS:
+        nessie.create_transfer(account["_id"], amount, day(days_ago), "SPEI ENVIADO RENTA DEPTO")
+
+    for description, occurrences in _SEED_RECURRING_PURCHASES + _SEED_VARIABLE_PURCHASES:
+        merchant = nessie.create_merchant(description.split(" ")[0].title())
+        for days_ago, amount in occurrences:
+            nessie.create_purchase(account["_id"], merchant["_id"], amount, day(days_ago), description)
+
+    return {"customer_id": customer["_id"], "account_id": account["_id"]}
 
 
 def _map_customer(c: dict) -> dict:
@@ -74,10 +128,7 @@ def _sync_transactions(account_id: str, nessie_account_id: str) -> int:
         [_map_purchase(account_id, p) for p in nessie.get_purchases(nessie_account_id)]
         + [_map_deposit(account_id, d) for d in nessie.get_deposits(nessie_account_id)]
         + [_map_withdrawal(account_id, w) for w in nessie.get_withdrawals(nessie_account_id)]
-        + [
-            _map_transfer(account_id, nessie_account_id, t)
-            for t in nessie.get_transfers(nessie_account_id)
-        ]
+        + [_map_transfer(account_id, t) for t in nessie.get_transfers(nessie_account_id)]
     )
     repository.upsert_raw_transactions(rows)
     _enrich_account_transactions(account_id)
@@ -129,18 +180,21 @@ def _map_withdrawal(account_id: str, w: dict) -> dict:
     }
 
 
-def _map_transfer(account_id: str, nessie_account_id: str, t: dict) -> dict:
-    outgoing = t.get("payer_id") == nessie_account_id
-    amount = nessie.to_cents(t.get("amount") or 0)
+def _map_transfer(account_id: str, t: dict) -> dict:
+    # Nessie's TransferCreate has no payer_id/payee_id and its GET rows key
+    # off "id", not "_id" like every other resource — verified against the
+    # live API. A transfer only ever posts to the account it was fetched
+    # from, so it is always money leaving this account.
+    nessie_id = t.get("id") or t["_id"]
     return {
-        "id": f"txn_nessie_{t['_id']}",
+        "id": f"txn_nessie_{nessie_id}",
         "account_id": account_id,
-        "amount_cents": -amount if outgoing else amount,
+        "amount_cents": -nessie.to_cents(t.get("amount") or 0),
         "type": "transfer",
         "status": (t.get("status") or "completed").lower(),
         "raw_description": t.get("description") or "TRANSFERENCIA NESSIE",
         "occurred_at": _occurred_at(t.get("transaction_date")),
-        "nessie_transaction_id": t["_id"],
+        "nessie_transaction_id": nessie_id,
     }
 
 

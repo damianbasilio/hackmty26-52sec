@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app import nessie, nessie_sync, repository
 
 NESSIE_CUSTOMER = {
@@ -27,14 +29,14 @@ NESSIE_DEPOSIT = {
     "description": "NOMINA",
     "transaction_date": "2026-01-01",
 }
+# Transfers are the one resource whose GET rows key off "id", not "_id", and
+# carry no payer_id/payee_id — verified against the live API.
 NESSIE_TRANSFER_OUT = {
-    "_id": "n_txn_transfer_1",
+    "id": "n_txn_transfer_1",
     "amount": 200.0,
     "status": "completed",
     "description": "TRANSFERENCIA",
     "transaction_date": "2026-01-02",
-    "payer_id": "n_acc_1",
-    "payee_id": "n_acc_other",
 }
 
 
@@ -89,7 +91,7 @@ def test_amounts_convert_to_cents_exactly_once(monkeypatch):
     txns = {t["nessie_transaction_id"]: t for t in written["transactions"]}
     assert txns["n_txn_purchase_1"]["amount_cents"] == -4550
     assert txns["n_txn_deposit_1"]["amount_cents"] == 100000
-    # payer_id matches the synced account -> money out -> negative.
+    # A transfer only ever posts to the account it came from -> always money out.
     assert txns["n_txn_transfer_1"]["amount_cents"] == -20000
     for row in written["transactions"]:
         assert isinstance(row["amount_cents"], int)
@@ -154,3 +156,52 @@ def test_enrichment_uses_the_account_local_hour_and_day(monkeypatch):
     assert enrichment["is_recurring"] is False
     assert 0 <= enrichment["hour_of_day"] <= 23
     assert 0 <= enrichment["day_of_week"] <= 6
+
+
+def test_seed_demo_data_creates_a_customer_account_and_recognizable_merchants(monkeypatch):
+    calls: dict = {"deposits": [], "transfers": [], "purchases": []}
+
+    monkeypatch.setattr(
+        nessie, "create_customer", lambda first, last, address: {"_id": "n_cus_seed"}
+    )
+    monkeypatch.setattr(
+        nessie,
+        "create_account",
+        lambda customer_id, account_type, nickname, balance: {"_id": "n_acc_seed"},
+    )
+    monkeypatch.setattr(
+        nessie, "create_merchant", lambda name: {"_id": f"n_mer_{name.lower()}"}
+    )
+    monkeypatch.setattr(
+        nessie,
+        "create_deposit",
+        lambda account_id, amount, date, desc: calls["deposits"].append((amount, date, desc)),
+    )
+    monkeypatch.setattr(
+        nessie,
+        "create_transfer",
+        lambda account_id, amount, date, desc: calls["transfers"].append((amount, date, desc)),
+    )
+    monkeypatch.setattr(
+        nessie,
+        "create_purchase",
+        lambda account_id, merchant_id, amount, date, desc: calls["purchases"].append(
+            (merchant_id, amount, date, desc)
+        ),
+    )
+
+    result = nessie_sync.seed_demo_data(datetime(2026, 9, 12, tzinfo=timezone.utc))
+
+    assert result == {"customer_id": "n_cus_seed", "account_id": "n_acc_seed"}
+    assert len(calls["deposits"]) == len(nessie_sync._SEED_DEPOSITS)
+    assert len(calls["transfers"]) == len(nessie_sync._SEED_TRANSFERS)
+    expected_purchases = sum(
+        len(occurrences)
+        for _, occurrences in nessie_sync._SEED_RECURRING_PURCHASES + nessie_sync._SEED_VARIABLE_PURCHASES
+    )
+    assert len(calls["purchases"]) == expected_purchases
+    # Every purchase description must be something enrichment.py already recognizes.
+    from app.enrichment import normalize_merchant
+
+    for _, _, _, description in calls["purchases"]:
+        assert normalize_merchant(description).category != "other"
