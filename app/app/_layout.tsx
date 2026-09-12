@@ -1,9 +1,10 @@
-import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import { AuthProvider, useAuth } from '@/components/AuthProvider';
+import { BankingProvider } from '@/components/BankingProvider';
 import { useColorScheme } from '@/components/useColorScheme';
 
 export {
@@ -12,31 +13,16 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  initialRouteName: '(tabs)',
+  initialRouteName: 'sign-in',
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
-    if (error) throw error;
-  }, [error]);
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
+    SplashScreen.hideAsync();
+  }, []);
 
   return <RootLayoutNav />;
 }
@@ -45,10 +31,35 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      </Stack>
-    </ThemeProvider>
+    <AuthProvider>
+      <BankingProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <AuthGate />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="sign-in" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="transferencias" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="dividir-gasto" options={{ animation: 'slide_from_bottom' }} />
+          </Stack>
+        </ThemeProvider>
+      </BankingProvider>
+    </AuthProvider>
   );
+}
+
+function AuthGate() {
+  const { signedIn, sessionLocked } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    const needsAccess = !signedIn || sessionLocked;
+    if (needsAccess && pathname !== '/sign-in') {
+      router.replace('/sign-in' as never);
+    } else if (!needsAccess && pathname === '/sign-in') {
+      router.replace('/' as never);
+    }
+  }, [pathname, router, sessionLocked, signedIn]);
+
+  return null;
 }

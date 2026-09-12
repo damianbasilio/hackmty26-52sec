@@ -1,11 +1,12 @@
 // Pieces the shared Card / ScreenState / palette trio doesn't cover yet.
 
-import { Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
+import { MotionPressable } from '@/components/Motion';
 import { usePalette } from '@/components/palette';
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
 export function SectionTitle({
   children,
@@ -17,7 +18,7 @@ export function SectionTitle({
   const palette = usePalette();
   return (
     <View style={styles.sectionRow}>
-      <Text style={[styles.sectionTitle, { color: palette.muted }]}>{children}</Text>
+      <Text style={[styles.sectionTitle, { color: palette.ink }]}>{children}</Text>
       {action}
     </View>
   );
@@ -42,16 +43,13 @@ type ButtonProps = {
 export function Button({ label, onPress, disabled }: ButtonProps) {
   const palette = usePalette();
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        { backgroundColor: palette.accent, opacity: disabled ? 0.5 : pressed ? 0.7 : 1 },
-      ]}>
+      style={[styles.button, { backgroundColor: palette.accentDeep, opacity: disabled ? 0.5 : 1 }]}>
       <Text style={styles.buttonLabel}>{label}</Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -75,16 +73,14 @@ export function Chip({
     return <View style={[styles.chip, { backgroundColor: background }]}>{content}</View>;
   }
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        { backgroundColor: background, opacity: pressed ? 0.7 : 1 },
-      ]}>
+      pressedScale={0.96}
+      style={[styles.chip, { backgroundColor: background }]}>
       {content}
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -94,10 +90,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
   },
-  sectionTitle: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  sectionTitle: { fontSize: 21, fontWeight: '700', letterSpacing: -0.4 },
   empty: {
     backgroundColor: 'transparent',
     flex: 1,
@@ -111,16 +107,16 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 48,
     paddingHorizontal: 28,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonLabel: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  buttonLabel: { color: '#fff', fontSize: 16, fontWeight: '700' },
   chip: {
     minHeight: 32,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
-    borderRadius: 999,
+    borderRadius: 14,
     justifyContent: 'center',
   },
   chipLabel: { fontSize: 13, fontWeight: '600' },

@@ -1,15 +1,20 @@
 import { useColorScheme } from './useColorScheme';
 
-/** Tokens shared by the salud + suscripciones screens. Lives here so constants/Colors (tab bar) stays untouched. */
 export type Palette = {
-  /** Page behind the cards. */
   background: string;
+  ambientCool: string;
+  ambientWarm: string;
   surface: string;
   surfaceAlt: string;
+  surfaceSage: string;
+  surfaceBlush: string;
+  surfaceMint: string;
   border: string;
+  ink: string;
   muted: string;
   track: string;
   accent: string;
+  accentDeep: string;
   accentSoft: string;
   positive: string;
   positiveSoft: string;
@@ -21,36 +26,50 @@ export type Palette = {
 
 const PALETTES: Record<'light' | 'dark', Palette> = {
   light: {
-    background: '#f2f5f9',
-    surface: '#ffffff',
-    surfaceAlt: '#f2f5f9',
-    border: '#e1e6ee',
-    muted: '#5b6775',
-    track: '#e4e9f1',
-    accent: '#2f95dc',
-    accentSoft: '#e3f0fa',
-    positive: '#14804a',
-    positiveSoft: '#e2f2ea',
-    warning: '#9a5b00',
-    warningSoft: '#fbeeda',
-    danger: '#b3261e',
-    dangerSoft: '#fbe6e4',
+    background: '#F8F7F3',
+    ambientCool: '#E8F3FA',
+    ambientWarm: '#F2EDE4',
+    surface: '#FFFDF9',
+    surfaceAlt: '#F1F0EB',
+    surfaceSage: '#E9EAE2',
+    surfaceBlush: '#FCEAE8',
+    surfaceMint: '#E7F4EB',
+    border: '#DEDED8',
+    ink: '#071A3D',
+    muted: '#667080',
+    track: '#DEDCD5',
+    accent: '#005A91',
+    accentDeep: '#001A3D',
+    accentSoft: '#E5F0F7',
+    positive: '#087A46',
+    positiveSoft: '#DFF1E6',
+    warning: '#95600B',
+    warningSoft: '#F7ECD7',
+    danger: '#D03027',
+    dangerSoft: '#FBE5E2',
   },
   dark: {
-    background: '#0f1216',
-    surface: '#1a1f26',
-    surfaceAlt: '#242b34',
-    border: '#2c343e',
-    muted: '#9aa6b4',
-    track: '#2c343e',
-    accent: '#5cb3ef',
-    accentSoft: '#152935',
-    positive: '#4cc38a',
-    positiveSoft: '#173226',
-    warning: '#e0a95b',
-    warningSoft: '#33270f',
-    danger: '#f2665c',
-    dangerSoft: '#351a1a',
+    background: '#101821',
+    ambientCool: '#142C3B',
+    ambientWarm: '#26241F',
+    surface: '#1A232D',
+    surfaceAlt: '#222D37',
+    surfaceSage: '#28302D',
+    surfaceBlush: '#392421',
+    surfaceMint: '#20342A',
+    border: '#34404A',
+    ink: '#F7F7F4',
+    muted: '#AAB2BA',
+    track: '#36414A',
+    accent: '#70BCE5',
+    accentDeep: '#D5EEFB',
+    accentSoft: '#173548',
+    positive: '#65CE98',
+    positiveSoft: '#1B3B2B',
+    warning: '#E5B56B',
+    warningSoft: '#3B2E19',
+    danger: '#FF766D',
+    dangerSoft: '#422321',
   },
 };
 
