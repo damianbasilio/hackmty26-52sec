@@ -35,6 +35,9 @@ _ACCOUNT_TYPE_MAP = {
 _SUSPICIOUS_AMOUNT_CENTS = 50_000_000
 # U+FFFD, or a "?" standing in for a letter: how "Treviño" came back from an old seed.
 _CORRUPTED_TEXT_RE = re.compile(r"�|\w\?\w")
+# transfers.py tags every Nessie write with this plus the transfer id, so a
+# synced row and the one the transfer wrote live are the same row.
+TRANSFER_REF = " REF:"
 
 # Descriptors match enrichment.py's rules exactly, so the seeded data is
 # recognizable by every engine the same way the fixtures are.
@@ -189,8 +192,8 @@ def _map_account(customer_id: str, a: dict) -> dict:
 def _pull_transactions(account_id: str, nessie_account_id: str) -> list[dict]:
     return (
         [_map_purchase(account_id, p) for p in nessie.get_purchases(nessie_account_id)]
-        + [_map_deposit(account_id, d) for d in nessie.get_deposits(nessie_account_id)]
-        + [_map_withdrawal(account_id, w) for w in nessie.get_withdrawals(nessie_account_id)]
+        + [map_deposit(account_id, d) for d in nessie.get_deposits(nessie_account_id)]
+        + [map_withdrawal(account_id, w) for w in nessie.get_withdrawals(nessie_account_id)]
         + [_map_transfer(account_id, t) for t in nessie.get_transfers(nessie_account_id)]
     )
 
@@ -214,27 +217,29 @@ def _map_purchase(account_id: str, p: dict) -> dict:
     }
 
 
-def _map_deposit(account_id: str, d: dict) -> dict:
+def map_deposit(account_id: str, d: dict) -> dict:
+    description = d.get("description") or "DEPOSITO NESSIE"
     return {
         "id": f"txn_nessie_{d['_id']}",
         "account_id": account_id,
         "amount_cents": nessie.to_cents(d.get("amount") or 0),
-        "type": "deposit",
+        "type": "transfer" if TRANSFER_REF in description else "deposit",
         "status": (d.get("status") or "completed").lower(),
-        "raw_description": d.get("description") or "DEPOSITO NESSIE",
+        "raw_description": description,
         "occurred_at": _occurred_at(d.get("transaction_date")),
         "nessie_transaction_id": d["_id"],
     }
 
 
-def _map_withdrawal(account_id: str, w: dict) -> dict:
+def map_withdrawal(account_id: str, w: dict) -> dict:
+    description = w.get("description") or "RETIRO NESSIE"
     return {
         "id": f"txn_nessie_{w['_id']}",
         "account_id": account_id,
         "amount_cents": -nessie.to_cents(w.get("amount") or 0),
-        "type": "withdrawal",
+        "type": "transfer" if TRANSFER_REF in description else "withdrawal",
         "status": (w.get("status") or "completed").lower(),
-        "raw_description": w.get("description") or "RETIRO NESSIE",
+        "raw_description": description,
         "occurred_at": _occurred_at(w.get("transaction_date")),
         "nessie_transaction_id": w["_id"],
     }
@@ -258,7 +263,7 @@ def _map_transfer(account_id: str, t: dict) -> dict:
     }
 
 
-def _enrich_account_transactions(account_id: str) -> None:
+def enrich_account_transactions(account_id: str) -> None:
     """Mirrors what the seeder writes for fixtures: merchant, category, hour/day, z-score.
 
     Recomputed over the account's full history each time so a merchant's

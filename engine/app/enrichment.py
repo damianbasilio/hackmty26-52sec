@@ -48,6 +48,15 @@ _RULES: list[tuple[re.Pattern[str], MerchantGuess]] = [
         re.compile(r"^spei enviado renta|^renta depto\b"),
         MerchantGuess("renta-depto", "Renta Depto Contry", "housing", True),
     ),
+    # after renta: "SPEI ENVIADO RENTA DEPTO" is the rent, not a P2P transfer
+    (
+        re.compile(r"^spei enviado\b"),
+        MerchantGuess("spei-enviado", "Transferencia enviada", "transfer", False),
+    ),
+    (
+        re.compile(r"^spei recibido\b"),
+        MerchantGuess("spei-recibido", "Transferencia recibida", "transfer", False),
+    ),
     (
         re.compile(r"^deposito nomina|^nomina\b"),
         MerchantGuess(
