@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
-from .repository import SupabaseNotConfigured
+from .repository import CustomerResolutionError, SupabaseNotConfigured
 from .routers import (
     accounts,
     anomalies,
@@ -34,6 +34,11 @@ app.add_middleware(
 @app.exception_handler(SupabaseNotConfigured)
 def handle_supabase_not_configured(request: Request, exc: SupabaseNotConfigured) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(CustomerResolutionError)
+def handle_customer_resolution_error(request: Request, exc: CustomerResolutionError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 app.include_router(customers.router)

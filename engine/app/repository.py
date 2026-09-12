@@ -23,6 +23,10 @@ class SupabaseNotConfigured(RuntimeError):
         )
 
 
+class CustomerResolutionError(RuntimeError):
+    """Raised when fetch_current_customer can't pick a customer without guessing."""
+
+
 @lru_cache
 def get_client() -> Client:
     s = get_settings()
@@ -31,8 +35,54 @@ def get_client() -> Client:
     return create_client(s.supabase_url, s.supabase_service_role_key)
 
 
+# nessie_sync.py's own _map_customer always ids a synced row "cus_nessie_<id>".
+# The fixture customer (db/seed.js) also carries a nessie_customer_id — a
+# fabricated placeholder, not a real sync — so that column can't tell the two
+# apart. The id prefix can: it's a fact about our own upsert code, not a guess.
+_NESSIE_SYNCED_ID_PREFIX = "cus_nessie_"
+
+
 def fetch_current_customer() -> dict | None:
-    """Single-tenant demo: the engine serves one customer, the oldest seeded row."""
+    """Single-tenant demo: picks the one customer this engine serves.
+
+    Resolution is explicit, not a guess, in this order:
+    1. ACTIVE_CUSTOMER_ID, when set, always wins — fetches that exact row and
+       raises if it doesn't exist, so a stale/typo'd id fails loudly instead
+       of silently falling back to fixture data.
+    2. Otherwise, a customer actually synced from Nessie (id prefixed
+       "cus_nessie_", see nessie_sync._map_customer) wins over the seeded
+       fixture customer — real synced data should never be shadowed by demo
+       data. If more than one exists (synced more than once), that's
+       ambiguous: raise and ask for ACTIVE_CUSTOMER_ID rather than picking
+       one arbitrarily.
+    3. With no Nessie customer at all, fall back to the oldest row — the
+       fixture customer from db/seed.js.
+    """
+    active_id = get_settings().active_customer_id
+    if active_id:
+        res = get_client().table("customers").select("*").eq("id", active_id).limit(1).execute()
+        if not res.data:
+            raise CustomerResolutionError(
+                f"ACTIVE_CUSTOMER_ID={active_id!r} no corresponde a ningún cliente en customers."
+            )
+        return res.data[0]
+
+    synced = (
+        get_client()
+        .table("customers")
+        .select("*")
+        .like("id", f"{_NESSIE_SYNCED_ID_PREFIX}%")
+        .order("created_at")
+        .execute()
+    ).data
+    if len(synced) > 1:
+        raise CustomerResolutionError(
+            "Hay más de un cliente sincronizado de Nessie; define ACTIVE_CUSTOMER_ID para "
+            "elegir cuál sirve el engine."
+        )
+    if synced:
+        return synced[0]
+
     res = get_client().table("customers").select("*").order("created_at").limit(1).execute()
     return res.data[0] if res.data else None
 

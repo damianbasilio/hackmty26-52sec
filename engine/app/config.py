@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
 
+    # Which customers row /customers/me (and everything downstream of it)
+    # serves. See repository.fetch_current_customer for the full resolution
+    # rule this backs.
+    active_customer_id: str = ""
+
     engine_port: int = 8000
     # Comma-separated origins allowed to call the engine from a browser.
     engine_cors_origins: str = "*"
