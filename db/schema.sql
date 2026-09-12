@@ -79,6 +79,53 @@ create table if not exists customers (
   created_at timestamptz not null default now()
 );
 
+-- Nessie customers we refuse to serve. Keyed by the Nessie id and kept in its
+-- own table on purpose: deleting the customer doesn't erase the decision, and
+-- POST /sync brings the row back already flagged. See db/README.md.
+create table if not exists excluded_nessie_customers (
+  nessie_customer_id text primary key,
+  reason text not null,
+  excluded_at timestamptz not null default now()
+);
+
+alter table customers add column if not exists excluded_at timestamptz;
+alter table customers add column if not exists exclusion_reason text;
+
+-- The API key's own garbage: we can't delete it on Nessie's side, so every
+-- sync re-imports it. These two rows are what makes it harmless.
+insert into excluded_nessie_customers (nessie_customer_id, reason) values
+  ('870d2c18-5422-4710-89a9-de3bff8309f0',
+   'Siembra vieja: nombre corrompido y una renta de -95000000 centavos, error de 100x anterior al fix de float.'),
+  ('31715ba5-8ed1-482a-8fbf-e4674efd17c3',
+   'Siembra vieja: cliente sin ninguna cuenta.')
+on conflict (nessie_customer_id) do nothing;
+
+-- Re-applied on every insert and update, so a re-sync can't quietly un-flag a
+-- customer we already threw out.
+create or replace function public.apply_customer_exclusion() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  hit excluded_nessie_customers%rowtype;
+begin
+  if new.nessie_customer_id is null then
+    return new;
+  end if;
+  select * into hit from excluded_nessie_customers e
+  where e.nessie_customer_id = new.nessie_customer_id;
+  if hit.nessie_customer_id is not null then
+    new.excluded_at := coalesce(new.excluded_at, hit.excluded_at);
+    new.exclusion_reason := hit.reason;
+    -- An excluded customer never owns a session, however it got linked.
+    new.auth_user_id := null;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists customers_apply_exclusion on customers;
+create trigger customers_apply_exclusion
+  before insert or update on customers
+  for each row execute function public.apply_customer_exclusion();
+
 create table if not exists accounts (
   id text primary key,
   customer_id text not null references customers (id) on delete cascade,
@@ -396,25 +443,32 @@ alter table merchants enable row level security;
 drop policy if exists read_merchants on merchants;
 create policy read_merchants on merchants for select using (true);
 
+-- excluded_at filters here and nowhere else: every policy on every table goes
+-- through this function, so one condition blinds the whole app to quarantined
+-- data instead of ten policies that have to remember.
 create or replace function public.owns_account(target_account_id text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from accounts a
     join customers c on c.id = a.customer_id
-    where a.id = target_account_id and c.auth_user_id = auth.uid()
+    where a.id = target_account_id
+      and c.auth_user_id = auth.uid()
+      and c.excluded_at is null
   );
 $$;
 
 create or replace function public.current_customer_id() returns text
 language sql stable security definer set search_path = public as $$
-  select c.id from customers c where c.auth_user_id = auth.uid() limit 1;
+  select c.id from customers c
+  where c.auth_user_id = auth.uid() and c.excluded_at is null
+  limit 1;
 $$;
 
 do $$
 declare t text;
 begin
   execute 'drop policy if exists own_customer on customers';
-  execute 'create policy own_customer on customers for select using (auth_user_id = auth.uid())';
+  execute 'create policy own_customer on customers for select using (auth_user_id = auth.uid() and excluded_at is null)';
   execute 'drop policy if exists own_account on accounts';
   execute 'create policy own_account on accounts for select using (public.owns_account(id))';
   foreach t in array array['transactions', 'transaction_enrichment', 'subscriptions',
@@ -589,11 +643,16 @@ declare
   target_customer text;
   target_user uuid;
   taken text;
+  excluded_because text;
 begin
-  select c.id into target_customer from customers c
+  select c.id, c.exclusion_reason into target_customer, excluded_because from customers c
   where c.id = customer_key or c.nessie_customer_id = customer_key;
   if target_customer is null then
     raise exception 'No hay customer con id ni nessie_customer_id = %', customer_key;
+  end if;
+  -- The whole point of the quarantine: nobody demos the $950,000 rent.
+  if excluded_because is not null then
+    raise exception 'El customer % está excluido y no se liga a nadie: %', target_customer, excluded_because;
   end if;
 
   select u.id into target_user from auth.users u where lower(u.email) = lower(auth_email);
@@ -625,6 +684,7 @@ begin
   select c.id into target_customer
   from customers c
   where c.auth_user_id is null
+    and c.excluded_at is null
     and (
       c.id = new.raw_user_meta_data ->> 'customer_id'
       or c.nessie_customer_id = new.raw_user_meta_data ->> 'nessie_customer_id'
