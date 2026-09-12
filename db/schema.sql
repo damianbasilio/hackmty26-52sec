@@ -294,6 +294,13 @@ alter table subscriptions enable row level security;
 alter table anomaly_alerts enable row level security;
 alter table cashflow_scores enable row level security;
 alter table savings_rules enable row level security;
+-- Shared catalog, no personal data: readable by anyone, writable by nobody. Without
+-- RLS the default grants let the publishable key INSERT/UPDATE/DELETE it, and that
+-- key ships inside the app bundle. The engine writes it with the service role.
+alter table merchants enable row level security;
+
+drop policy if exists read_merchants on merchants;
+create policy read_merchants on merchants for select using (true);
 
 create or replace function owns_account(target_account_id text) returns boolean
 language sql stable security definer set search_path = public as $$
