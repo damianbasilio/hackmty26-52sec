@@ -98,7 +98,7 @@ def sync_all() -> dict:
         for account_row, rows in accounts:
             account = repository.upsert_accounts([account_row])[0]
             repository.upsert_raw_transactions(rows)
-            _enrich_account_transactions(account["id"])
+            enrich_account_transactions(account["id"])
             synced["accounts"] += 1
             synced["transactions"] += len(rows)
 

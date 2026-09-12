@@ -43,7 +43,7 @@ def _patch(monkeypatch, excluded):
     monkeypatch.setattr(repository, "upsert_customer", lambda row: written["customers"].append(row) or row)
     monkeypatch.setattr(repository, "upsert_accounts", lambda rows: rows)
     monkeypatch.setattr(repository, "upsert_raw_transactions", lambda rows: written["transactions"].extend(rows))
-    monkeypatch.setattr(nessie_sync, "_enrich_account_transactions", lambda account_id: None)
+    monkeypatch.setattr(nessie_sync, "enrich_account_transactions", lambda account_id: None)
     return written
 
 
