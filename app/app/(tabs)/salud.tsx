@@ -1,5 +1,3 @@
-import type { CashflowScore } from '@contracts/types';
-import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View as RawView } from 'react-native';
 
 import { Card } from '@/components/Card';
@@ -8,53 +6,30 @@ import { ScoreGauge } from '@/components/ScoreGauge';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
+import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
-
-type State =
-  | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'ready'; score: CashflowScore };
 
 export default function SaludScreen() {
   const palette = usePalette();
-  const [state, setState] = useState<State>({ kind: 'loading' });
-  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const accounts = await dataSource.getAccounts();
-      const account = accounts.find((a) => a.type === 'checking') ?? accounts[0];
-      setState({ kind: 'ready', score: await dataSource.getScore(account.id) });
-    } catch (e) {
-      setState({ kind: 'error', message: (e as Error).message });
-    }
-  }, []);
+  const { data, error, loading, reload } = useAsync(async () => {
+    const accounts = await dataSource.getAccounts();
+    const checking = accounts.find((a) => a.type === 'checking') ?? accounts[0];
+    if (!checking) throw new Error('No hay cuentas disponibles.');
+    return dataSource.getScore(checking.id);
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // pantalla completa solo en la primera carga; al refrescar se queda el contenido
+  if (loading && !data) return <LoadingState label="Calculando tu salud financiera…" />;
+  if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
-  const retry = useCallback(() => {
-    setState({ kind: 'loading' });
-    void load();
-  }, [load]);
-
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
-  if (state.kind === 'loading') return <LoadingState label="Calculando tu salud financiera…" />;
-  if (state.kind === 'error') return <ErrorState message={state.message} onRetry={retry} />;
-
-  const { score } = state;
+  const score = data;
 
   return (
     <ScrollView
       style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.accent} />}>
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
       <Card>
         <ScoreGauge score={score} />
       </Card>
