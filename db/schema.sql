@@ -9,23 +9,47 @@ create extension if not exists "unaccent";
 -- Enums
 -- ---------------------------------------------------------------------------
 
+-- Guard per type: a shared exception block would swallow the first duplicate and
+-- silently skip every type after it, leaving a half-built schema behind.
 do $$ begin
-  create type account_type as enum ('checking', 'savings', 'credit_card');
-  create type transaction_type as enum ('purchase', 'deposit', 'withdrawal', 'transfer', 'fee');
-  create type transaction_status as enum ('pending', 'completed', 'cancelled');
-  create type merchant_category as enum (
-    'groceries', 'convenience', 'restaurants', 'delivery', 'transport', 'fuel',
-    'utilities', 'telecom', 'streaming', 'fitness', 'housing', 'health',
-    'shopping', 'education', 'insurance', 'fees', 'income', 'transfer', 'cash', 'other'
-  );
-  create type subscription_cadence as enum ('weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'annual');
-  create type subscription_status as enum ('active', 'price_increased', 'paused', 'likely_cancelled', 'unused');
-  create type anomaly_severity as enum ('info', 'warning', 'critical');
-  create type anomaly_resolution as enum ('dismissed', 'confirmed_fraud', 'confirmed_legit');
-  create type score_band as enum ('poor', 'fair', 'good', 'very_good', 'excellent');
-  create type savings_rule_kind as enum ('round_up', 'fixed_recurring', 'percent_of_income', 'cancel_subscription', 'spend_cap');
-  create type savings_rule_status as enum ('suggested', 'active', 'paused', 'completed');
-exception when duplicate_object then null; end $$;
+  if to_regtype('account_type') is null then
+    create type account_type as enum ('checking', 'savings', 'credit_card');
+  end if;
+  if to_regtype('transaction_type') is null then
+    create type transaction_type as enum ('purchase', 'deposit', 'withdrawal', 'transfer', 'fee');
+  end if;
+  if to_regtype('transaction_status') is null then
+    create type transaction_status as enum ('pending', 'completed', 'cancelled');
+  end if;
+  if to_regtype('merchant_category') is null then
+    create type merchant_category as enum (
+      'groceries', 'convenience', 'restaurants', 'delivery', 'transport', 'fuel',
+      'utilities', 'telecom', 'streaming', 'fitness', 'housing', 'health',
+      'shopping', 'education', 'insurance', 'fees', 'income', 'transfer', 'cash', 'other'
+    );
+  end if;
+  if to_regtype('subscription_cadence') is null then
+    create type subscription_cadence as enum ('weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'annual');
+  end if;
+  if to_regtype('subscription_status') is null then
+    create type subscription_status as enum ('active', 'price_increased', 'paused', 'likely_cancelled', 'unused');
+  end if;
+  if to_regtype('anomaly_severity') is null then
+    create type anomaly_severity as enum ('info', 'warning', 'critical');
+  end if;
+  if to_regtype('anomaly_resolution') is null then
+    create type anomaly_resolution as enum ('dismissed', 'confirmed_fraud', 'confirmed_legit');
+  end if;
+  if to_regtype('score_band') is null then
+    create type score_band as enum ('poor', 'fair', 'good', 'very_good', 'excellent');
+  end if;
+  if to_regtype('savings_rule_kind') is null then
+    create type savings_rule_kind as enum ('round_up', 'fixed_recurring', 'percent_of_income', 'cancel_subscription', 'spend_cap');
+  end if;
+  if to_regtype('savings_rule_status') is null then
+    create type savings_rule_status as enum ('suggested', 'active', 'paused', 'completed');
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Core entities (lane A)
@@ -226,7 +250,9 @@ create index if not exists savings_rules_account_status_idx
 -- Read surface the app consumes. Matches EnrichedTransaction exactly.
 -- ---------------------------------------------------------------------------
 
-create or replace view enriched_transactions as
+-- security_invoker or the view runs as its owner and RLS on transactions is checked
+-- against postgres instead of the caller: the anon key would read all 51 rows. PG 15+.
+create or replace view enriched_transactions with (security_invoker = true) as
 select
   t.id,
   t.account_id,
