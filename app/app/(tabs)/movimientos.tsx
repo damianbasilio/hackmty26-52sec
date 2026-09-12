@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, View as Box, ScrollView, StyleSheet } from 'react-native';
+import { FlatList, View as Box, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 
 import type { EnrichedTransaction, MerchantCategory } from '@contracts/types';
 
@@ -61,7 +61,7 @@ export default function MovimientosScreen() {
     return out;
   }, [transactions, filter]);
 
-  if (loading) return <LoadingState label="Cargando movimientos…" />;
+  if (loading && !data) return <LoadingState label="Cargando movimientos…" />;
   if (error) return <ErrorState message={error} onRetry={reload} />;
 
   return (
@@ -86,6 +86,9 @@ export default function MovimientosScreen() {
         data={rows}
         keyExtractor={(row) => row.key}
         contentContainerStyle={rows.length ? styles.list : styles.listEmpty}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.muted} />
+        }
         ListEmptyComponent={
           <EmptyState
             title="Sin movimientos aquí"
