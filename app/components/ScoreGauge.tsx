@@ -27,6 +27,37 @@ function bandColor(band: CashflowScore['band'], palette: Palette): string {
   return palette.positive;
 }
 
+const LIGHT_INK = '#ffffff';
+const DARK_INK = '#0f1216';
+
+function relativeLuminance(hex: string): number {
+  const packed = parseInt(hex.slice(1), 16);
+  const channel = (value: number) => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return (
+    0.2126 * channel((packed >> 16) & 255) +
+    0.7152 * channel((packed >> 8) & 255) +
+    0.0722 * channel(packed & 255)
+  );
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Label ink for a solid band chip. Derived from the band color instead of a fixed
+ * value so the five bands clear 4.5:1 in both themes without touching the palette.
+ */
+function bandInk(background: string): string {
+  return contrastRatio(LIGHT_INK, background) >= contrastRatio(DARK_INK, background)
+    ? LIGHT_INK
+    : DARK_INK;
+}
+
 /** Position of a score inside the 300..850 track, as a layout percentage. */
 function trackPercent(score: number): number {
   const clamped = Math.min(MAX_SCORE, Math.max(MIN_SCORE, score));
@@ -76,7 +107,7 @@ export function ScoreGauge({ score }: { score: CashflowScore }) {
       </Text>
 
       <View style={styles.badges}>
-        <Badge label={BAND_ES[score.band]} color={color} background={palette.surfaceAlt} />
+        <Badge label={BAND_ES[score.band]} color={bandInk(color)} background={color} />
         {delta !== null && (
           <Badge
             label={`${delta >= 0 ? '+' : '−'}${Math.abs(delta)} pts`}
