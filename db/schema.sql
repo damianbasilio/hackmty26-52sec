@@ -2,6 +2,11 @@
 -- Money is always BIGINT cents. Timestamps are timestamptz stored in UTC.
 -- Run: psql "$SUPABASE_DB_URL" -f db/schema.sql
 
+-- Pin it for the whole file: every unqualified table, type and policy below would
+-- otherwise land wherever the session's search_path points. extensions is where
+-- Supabase keeps pgcrypto/unaccent; on plain Postgres that entry is ignored.
+set search_path = public, extensions;
+
 create extension if not exists "pgcrypto";
 create extension if not exists "unaccent";
 
@@ -269,7 +274,7 @@ select
   e.merchant_id,
   m.normalized_name as merchant_normalized_name,
   m.display_name as merchant_display_name,
-  coalesce(e.category, 'other'::merchant_category) as category,
+  coalesce(e.category, 'other'::public.merchant_category) as category,
   coalesce(e.category_confidence, 0) as category_confidence,
   coalesce(e.is_recurring, false) as is_recurring,
   e.subscription_id,
@@ -302,7 +307,7 @@ alter table merchants enable row level security;
 drop policy if exists read_merchants on merchants;
 create policy read_merchants on merchants for select using (true);
 
-create or replace function owns_account(target_account_id text) returns boolean
+create or replace function public.owns_account(target_account_id text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from accounts a
@@ -317,19 +322,19 @@ begin
   execute 'drop policy if exists own_customer on customers';
   execute 'create policy own_customer on customers for select using (auth_user_id = auth.uid())';
   execute 'drop policy if exists own_account on accounts';
-  execute 'create policy own_account on accounts for select using (owns_account(id))';
+  execute 'create policy own_account on accounts for select using (public.owns_account(id))';
   foreach t in array array['transactions', 'transaction_enrichment', 'subscriptions',
                            'anomaly_alerts', 'cashflow_scores', 'savings_rules']
   loop
     execute format('drop policy if exists own_rows on %I', t);
-    execute format('create policy own_rows on %I for select using (owns_account(account_id))', t);
+    execute format('create policy own_rows on %I for select using (public.owns_account(account_id))', t);
   end loop;
 end $$;
 
 -- The app toggles savings rules; nothing else is writable from the client.
 drop policy if exists own_savings_update on savings_rules;
 create policy own_savings_update on savings_rules
-  for update using (owns_account(account_id)) with check (owns_account(account_id));
+  for update using (public.owns_account(account_id)) with check (public.owns_account(account_id));
 
 -- Realtime pushes new alerts to the app without polling.
 do $$ begin
