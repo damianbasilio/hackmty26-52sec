@@ -177,28 +177,42 @@ def upsert_transaction_enrichment(rows: list[dict]) -> None:
     get_client().table("transaction_enrichment").upsert(rows, on_conflict="transaction_id").execute()
 
 
+# subscriptions has no category/merchant_display_name columns — they're
+# denormalized from merchants (already joined on merchant_id) rather than
+# duplicated in storage, matching every other table's split between raw and
+# derived data.
+_SUBSCRIPTION_DENORMALIZED_FIELDS = ("category", "merchant_display_name")
+
+
+def _flatten_subscription(row: dict) -> dict:
+    merchant = row.pop("merchants", None) or {}
+    row["category"] = merchant.get("category")
+    row["merchant_display_name"] = merchant.get("display_name")
+    return row
+
+
 def fetch_subscriptions(account_id: str) -> list[dict]:
     res = (
         get_client()
         .table("subscriptions")
-        .select("*")
+        .select("*, merchants(category,display_name)")
         .eq("account_id", account_id)
         .order("next_charge_on")
         .execute()
     )
-    return res.data
+    return [_flatten_subscription(row) for row in res.data]
 
 
 def upsert_subscriptions(rows: list[dict]) -> list[dict]:
     if not rows:
         return []
-    res = (
-        get_client()
-        .table("subscriptions")
-        .upsert(rows, on_conflict="account_id,merchant_id,cadence")
-        .execute()
-    )
-    return res.data
+    db_rows = [
+        {k: v for k, v in row.items() if k not in _SUBSCRIPTION_DENORMALIZED_FIELDS} for row in rows
+    ]
+    get_client().table("subscriptions").upsert(db_rows, on_conflict="account_id,merchant_id,cadence").execute()
+    # Return what we already computed (full contract shape) rather than
+    # re-reading — the DB row is missing the denormalized fields anyway.
+    return rows
 
 
 def fetch_anomaly_alerts(account_id: str, include_resolved: bool) -> list[dict]:
