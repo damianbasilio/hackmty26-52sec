@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException
 
 from .. import repository
-from ..subscriptions_engine import detect_subscriptions
+from ..bills import detect_with_bills
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -14,7 +16,7 @@ def list_subscriptions(account_id: str) -> list[dict]:
 
 @router.post("/detect")
 def detect(account_id: str) -> list[dict]:
-    """Re-run cadence detection over the account history and upsert subscriptions."""
+    """Re-run cadence detection, cross it with the account's Nessie bills, and upsert."""
     transactions = repository.fetch_transactions(account_id)
     if not transactions:
         raise HTTPException(status_code=404, detail="No transactions for this account")
@@ -23,5 +25,7 @@ def detect(account_id: str) -> list[dict]:
     existing = repository.fetch_subscriptions(account_id)
     existing_ids = {(row["merchant_id"], row["cadence"]): row["id"] for row in existing}
 
-    detected = detect_subscriptions(account_id, transactions, merchants, existing_ids)
+    detected = detect_with_bills(
+        account_id, transactions, merchants, existing_ids, datetime.now(timezone.utc).date()
+    )
     return repository.upsert_subscriptions(detected)
