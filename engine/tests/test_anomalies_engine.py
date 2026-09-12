@@ -45,3 +45,28 @@ def test_every_alert_has_spanish_copy(transactions, merchants):
         assert alert["suggested_action"]
         assert alert["severity"] in {"info", "warning", "critical"}
         assert 0 <= alert["score"] <= 100
+
+
+def test_reuses_existing_alert_id_instead_of_duplicating(transactions, merchants):
+    subs = detect_subscriptions(ACCOUNT_ID, transactions, merchants)
+    first_pass = {a["transaction_id"]: a["id"] for a in scan_anomalies(ACCOUNT_ID, transactions, merchants, subs, NOW)}
+    existing_ids = first_pass
+
+    second_pass = scan_anomalies(ACCOUNT_ID, transactions, merchants, subs, NOW, existing_ids)
+
+    assert len(second_pass) == 3
+    for alert in second_pass:
+        assert alert["id"] == first_pass[alert["transaction_id"]]
+
+
+def test_skips_transactions_the_user_already_resolved(transactions, merchants):
+    subs = detect_subscriptions(ACCOUNT_ID, transactions, merchants)
+    first_pass = scan_anomalies(ACCOUNT_ID, transactions, merchants, subs, NOW)
+    resolved_txn_id = first_pass[0]["transaction_id"]
+
+    second_pass = scan_anomalies(
+        ACCOUNT_ID, transactions, merchants, subs, NOW, {}, {resolved_txn_id}
+    )
+
+    assert resolved_txn_id not in {a["transaction_id"] for a in second_pass}
+    assert len(second_pass) == 2

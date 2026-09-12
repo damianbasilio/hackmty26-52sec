@@ -52,7 +52,11 @@ def scan_anomalies(
     merchants: dict[str, Merchant],
     subscriptions: list[dict],
     now: datetime,
+    existing_ids: dict[str, str] | None = None,
+    resolved_transaction_ids: set[str] | None = None,
 ) -> list[dict]:
+    existing_ids = existing_ids or {}
+    resolved_transaction_ids = resolved_transaction_ids or set()
     purchases = [t for t in transactions if t.type == "purchase" and t.status == "completed"]
 
     by_merchant: dict[str, list[Transaction]] = defaultdict(list)
@@ -79,8 +83,10 @@ def scan_anomalies(
     txns_by_id = {t.id: t for t in transactions}
     sub_by_id = {s["id"]: s for s in subscriptions}
     alerts = [
-        _build_alert(account_id, txns_by_id[txn_id], signals, sub_by_id, now)
+        _build_alert(account_id, txns_by_id[txn_id], signals, sub_by_id, now, existing_ids.get(txn_id))
         for txn_id, signals in signals_by_txn.items()
+        # Don't resurface something the user already dismissed or confirmed.
+        if txn_id not in resolved_transaction_ids
     ]
 
     alerts.sort(key=lambda a: (-a["score"], a["detected_at"]))
@@ -227,6 +233,7 @@ def _build_alert(
     signals: list[dict],
     sub_by_id: dict[str, dict],
     now: datetime,
+    existing_id: str | None,
 ) -> dict:
     kinds = {s["kind"] for s in signals}
     subscription_id = next((s.get("subscription_id") for s in signals if s.get("subscription_id")), None)
@@ -237,7 +244,7 @@ def _build_alert(
     title, explanation, suggested_action = _copy_for(txn, kinds, signals, sub_by_id.get(subscription_id))
 
     return {
-        "id": f"alr_{txn.id}",
+        "id": existing_id or f"alr_{txn.id}",
         "account_id": account_id,
         "transaction_id": txn.id,
         "subscription_id": subscription_id,

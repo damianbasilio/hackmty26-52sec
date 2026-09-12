@@ -1,8 +1,19 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .config import get_settings
-from .routers import anomalies, savings, score, subscriptions, sync
+from .repository import SupabaseNotConfigured
+from .routers import (
+    accounts,
+    anomalies,
+    customers,
+    savings,
+    score,
+    subscriptions,
+    sync,
+    transactions,
+)
 
 settings = get_settings()
 
@@ -19,6 +30,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(SupabaseNotConfigured)
+def handle_supabase_not_configured(request: Request, exc: SupabaseNotConfigured) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+app.include_router(customers.router)
+app.include_router(accounts.router)
+app.include_router(transactions.router)
 app.include_router(sync.router)
 app.include_router(subscriptions.router)
 app.include_router(anomalies.router)

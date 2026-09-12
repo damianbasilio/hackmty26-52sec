@@ -15,10 +15,38 @@ from .enrichment import normalize_merchant
 from .models import Merchant, Transaction, parse_iso
 
 
+class SupabaseNotConfigured(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Supabase no está configurado (falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY). "
+            "Corre el contenedor con --env-file .env o exporta esas variables."
+        )
+
+
 @lru_cache
 def get_client() -> Client:
     s = get_settings()
+    if not s.supabase_url or not s.supabase_service_role_key:
+        raise SupabaseNotConfigured()
     return create_client(s.supabase_url, s.supabase_service_role_key)
+
+
+def fetch_current_customer() -> dict | None:
+    """Single-tenant demo: the engine serves one customer, the oldest seeded row."""
+    res = get_client().table("customers").select("*").order("created_at").limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def fetch_accounts(customer_id: str) -> list[dict]:
+    res = (
+        get_client()
+        .table("accounts")
+        .select("*")
+        .eq("customer_id", customer_id)
+        .order("created_at")
+        .execute()
+    )
+    return res.data
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +77,20 @@ def upsert_raw_transactions(rows: list[dict]) -> list[dict]:
         .execute()
     )
     return res.data
+
+
+def fetch_enriched_transactions(
+    account_id: str, date_from: str | None, date_to: str | None, limit: int | None
+) -> list[dict]:
+    query = get_client().table("enriched_transactions").select("*").eq("account_id", account_id)
+    if date_from:
+        query = query.gte("occurred_at", f"{date_from}T00:00:00Z")
+    if date_to:
+        query = query.lte("occurred_at", f"{date_to}T23:59:59Z")
+    query = query.order("occurred_at", desc=True)
+    if limit is not None:
+        query = query.limit(limit)
+    return query.execute().data
 
 
 def fetch_account(account_id: str) -> dict | None:
@@ -165,28 +207,42 @@ def upsert_transaction_enrichment(rows: list[dict]) -> None:
     get_client().table("transaction_enrichment").upsert(rows, on_conflict="transaction_id").execute()
 
 
+# subscriptions has no category/merchant_display_name columns — they're
+# denormalized from merchants (already joined on merchant_id) rather than
+# duplicated in storage, matching every other table's split between raw and
+# derived data.
+_SUBSCRIPTION_DENORMALIZED_FIELDS = ("category", "merchant_display_name")
+
+
+def _flatten_subscription(row: dict) -> dict:
+    merchant = row.pop("merchants", None) or {}
+    row["category"] = merchant.get("category")
+    row["merchant_display_name"] = merchant.get("display_name")
+    return row
+
+
 def fetch_subscriptions(account_id: str) -> list[dict]:
     res = (
         get_client()
         .table("subscriptions")
-        .select("*")
+        .select("*, merchants(category,display_name)")
         .eq("account_id", account_id)
         .order("next_charge_on")
         .execute()
     )
-    return res.data
+    return [_flatten_subscription(row) for row in res.data]
 
 
 def upsert_subscriptions(rows: list[dict]) -> list[dict]:
     if not rows:
         return []
-    res = (
-        get_client()
-        .table("subscriptions")
-        .upsert(rows, on_conflict="account_id,merchant_id,cadence")
-        .execute()
-    )
-    return res.data
+    db_rows = [
+        {k: v for k, v in row.items() if k not in _SUBSCRIPTION_DENORMALIZED_FIELDS} for row in rows
+    ]
+    get_client().table("subscriptions").upsert(db_rows, on_conflict="account_id,merchant_id,cadence").execute()
+    # Return what we already computed (full contract shape) rather than
+    # re-reading — the DB row is missing the denormalized fields anyway.
+    return rows
 
 
 def fetch_anomaly_alerts(account_id: str, include_resolved: bool) -> list[dict]:

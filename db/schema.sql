@@ -11,43 +11,45 @@ create extension if not exists "unaccent";
 
 -- Guard per type: a shared exception block would swallow the first duplicate and
 -- silently skip every type after it, leaving a half-built schema behind.
+-- Qualify with public. or to_regtype resolves through search_path and misses the
+-- existing type when the file runs under a different one.
 do $$ begin
-  if to_regtype('account_type') is null then
-    create type account_type as enum ('checking', 'savings', 'credit_card');
+  if to_regtype('public.account_type') is null then
+    create type public.account_type as enum ('checking', 'savings', 'credit_card');
   end if;
-  if to_regtype('transaction_type') is null then
-    create type transaction_type as enum ('purchase', 'deposit', 'withdrawal', 'transfer', 'fee');
+  if to_regtype('public.transaction_type') is null then
+    create type public.transaction_type as enum ('purchase', 'deposit', 'withdrawal', 'transfer', 'fee');
   end if;
-  if to_regtype('transaction_status') is null then
-    create type transaction_status as enum ('pending', 'completed', 'cancelled');
+  if to_regtype('public.transaction_status') is null then
+    create type public.transaction_status as enum ('pending', 'completed', 'cancelled');
   end if;
-  if to_regtype('merchant_category') is null then
-    create type merchant_category as enum (
+  if to_regtype('public.merchant_category') is null then
+    create type public.merchant_category as enum (
       'groceries', 'convenience', 'restaurants', 'delivery', 'transport', 'fuel',
       'utilities', 'telecom', 'streaming', 'fitness', 'housing', 'health',
       'shopping', 'education', 'insurance', 'fees', 'income', 'transfer', 'cash', 'other'
     );
   end if;
-  if to_regtype('subscription_cadence') is null then
-    create type subscription_cadence as enum ('weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'annual');
+  if to_regtype('public.subscription_cadence') is null then
+    create type public.subscription_cadence as enum ('weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'annual');
   end if;
-  if to_regtype('subscription_status') is null then
-    create type subscription_status as enum ('active', 'price_increased', 'paused', 'likely_cancelled', 'unused');
+  if to_regtype('public.subscription_status') is null then
+    create type public.subscription_status as enum ('active', 'price_increased', 'paused', 'likely_cancelled', 'unused');
   end if;
-  if to_regtype('anomaly_severity') is null then
-    create type anomaly_severity as enum ('info', 'warning', 'critical');
+  if to_regtype('public.anomaly_severity') is null then
+    create type public.anomaly_severity as enum ('info', 'warning', 'critical');
   end if;
-  if to_regtype('anomaly_resolution') is null then
-    create type anomaly_resolution as enum ('dismissed', 'confirmed_fraud', 'confirmed_legit');
+  if to_regtype('public.anomaly_resolution') is null then
+    create type public.anomaly_resolution as enum ('dismissed', 'confirmed_fraud', 'confirmed_legit');
   end if;
-  if to_regtype('score_band') is null then
-    create type score_band as enum ('poor', 'fair', 'good', 'very_good', 'excellent');
+  if to_regtype('public.score_band') is null then
+    create type public.score_band as enum ('poor', 'fair', 'good', 'very_good', 'excellent');
   end if;
-  if to_regtype('savings_rule_kind') is null then
-    create type savings_rule_kind as enum ('round_up', 'fixed_recurring', 'percent_of_income', 'cancel_subscription', 'spend_cap');
+  if to_regtype('public.savings_rule_kind') is null then
+    create type public.savings_rule_kind as enum ('round_up', 'fixed_recurring', 'percent_of_income', 'cancel_subscription', 'spend_cap');
   end if;
-  if to_regtype('savings_rule_status') is null then
-    create type savings_rule_status as enum ('suggested', 'active', 'paused', 'completed');
+  if to_regtype('public.savings_rule_status') is null then
+    create type public.savings_rule_status as enum ('suggested', 'active', 'paused', 'completed');
   end if;
 end $$;
 
@@ -292,6 +294,13 @@ alter table subscriptions enable row level security;
 alter table anomaly_alerts enable row level security;
 alter table cashflow_scores enable row level security;
 alter table savings_rules enable row level security;
+-- Shared catalog, no personal data: readable by anyone, writable by nobody. Without
+-- RLS the default grants let the publishable key INSERT/UPDATE/DELETE it, and that
+-- key ships inside the app bundle. The engine writes it with the service role.
+alter table merchants enable row level security;
+
+drop policy if exists read_merchants on merchants;
+create policy read_merchants on merchants for select using (true);
 
 create or replace function owns_account(target_account_id text) returns boolean
 language sql stable security definer set search_path = public as $$
