@@ -336,6 +336,87 @@ drop policy if exists own_savings_update on savings_rules;
 create policy own_savings_update on savings_rules
   for update using (public.owns_account(account_id)) with check (public.owns_account(account_id));
 
+-- ---------------------------------------------------------------------------
+-- Auth linking. Every RLS policy above resolves through customers.auth_user_id,
+-- so a customer with that column null is invisible to everybody. This section
+-- is the only thing that fills it in — the engine must not link users too.
+-- ---------------------------------------------------------------------------
+
+-- Resolves a customer by our own id or by its Nessie id, and an auth user by
+-- email, then links them. Raises instead of doing nothing so a typo in a demo
+-- script fails where you can see it.
+create or replace function public.link_customer_to_auth_user(customer_key text, auth_email text)
+returns table (customer_id text, auth_user_id uuid)
+language plpgsql volatile security definer set search_path = public, auth as $$
+declare
+  target_customer text;
+  target_user uuid;
+  taken text;
+begin
+  select c.id into target_customer from customers c
+  where c.id = customer_key or c.nessie_customer_id = customer_key;
+  if target_customer is null then
+    raise exception 'No hay customer con id ni nessie_customer_id = %', customer_key;
+  end if;
+
+  select u.id into target_user from auth.users u where lower(u.email) = lower(auth_email);
+  if target_user is null then
+    raise exception 'No hay usuario de Auth con correo %. Créalo en Authentication -> Users primero.', auth_email;
+  end if;
+
+  -- auth_user_id is unique: say which customer holds it instead of leaking a
+  -- bare constraint violation.
+  select c.id into taken from customers c
+  where c.auth_user_id = target_user and c.id <> target_customer;
+  if taken is not null then
+    raise exception 'El usuario % ya está ligado al customer %. Un usuario por cliente.', auth_email, taken;
+  end if;
+
+  update customers c set auth_user_id = target_user where c.id = target_customer;
+  return query select target_customer, target_user;
+end $$;
+
+-- Fires on signup so a new Auth user picks up its customer with no manual SQL.
+-- Match order, most explicit first: the signUp metadata the app sends, then the
+-- Nessie id, then the email. Only ever claims a customer nobody owns yet.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql security definer set search_path = public, auth as $$
+declare
+  target_customer text;
+begin
+  select c.id into target_customer
+  from customers c
+  where c.auth_user_id is null
+    and (
+      c.id = new.raw_user_meta_data ->> 'customer_id'
+      or c.nessie_customer_id = new.raw_user_meta_data ->> 'nessie_customer_id'
+      or lower(c.email) = lower(new.email)
+    )
+  -- coalesce or the comparison is null for a customer with no nessie id, and
+  -- `desc` sorts nulls first: the row that didn't match would outrank the one
+  -- that did.
+  order by
+    coalesce(c.id = new.raw_user_meta_data ->> 'customer_id', false) desc,
+    coalesce(c.nessie_customer_id = new.raw_user_meta_data ->> 'nessie_customer_id', false) desc
+  limit 1;
+
+  if target_customer is not null then
+    update customers c set auth_user_id = new.id where c.id = target_customer;
+  end if;
+  return new;
+exception when others then
+  -- A raise here aborts the signup with "Database error saving new user".
+  -- Losing the automatic link is recoverable; losing the account is not.
+  raise warning 'handle_new_auth_user no pudo ligar a %: %', new.id, sqlerrm;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_auth_user();
+
 -- Realtime pushes new alerts to the app without polling.
 do $$ begin
   alter publication supabase_realtime add table anomaly_alerts;
