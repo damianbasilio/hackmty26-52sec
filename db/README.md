@@ -239,6 +239,40 @@ Resumen de quién ve qué, con tres usuarios (A crea, B se une, C es ajeno):
 | B (participante) | 1 | 2 | 0 |
 | C (ajeno) | 0 | 0 | 0 |
 
+## Realtime
+
+`schema.sql` deja la publicación `supabase_realtime` configurada. **Solo estas cuatro tablas
+emiten**; lo demás la app lo lee cuando lo necesita.
+
+| Tabla | Qué evento le importa a la app |
+|---|---|
+| `anomaly_alerts` | alerta nueva sin que la app pregunte |
+| `transfers` | el engine mueve `status` de `pending` a `completed` o `failed` |
+| `split_requests` | el creador liquida o cancela la división |
+| `split_participants` | alguien se une, o alguien paga (`paid_at`) |
+
+Las cuatro quedan en `replica identity full`. Sin eso un `update` o un `delete` solo publica la
+llave primaria, y Realtime no puede evaluar una policy como `owns_account(account_id)` contra una
+fila que no tiene: en vez de entregar el evento lo tira. Con `full` viaja la fila completa y la
+RLS se aplica igual que en un `select`, así que publicar una tabla no filtra nada que el usuario
+no pudiera leer de todos modos.
+
+Del lado de la app (carriles C y D), un canal por tabla y filtro por cuenta:
+
+```ts
+supabase
+  .channel('alertas')
+  .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'anomaly_alerts',
+        filter: `account_id=eq.${accountId}` },
+      (payload) => { /* ... */ })
+  .subscribe();
+```
+
+Realtime hay que habilitarlo también en el dashboard: Database → Replication → `supabase_realtime`.
+Correr `schema.sql` agrega las tablas a la publicación, pero si el proyecto trae Realtime apagado
+no sale ningún evento.
+
 ## Resetear
 ```sql
 drop view if exists enriched_transactions;

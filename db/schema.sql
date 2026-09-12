@@ -654,7 +654,27 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_auth_user();
 
--- Realtime pushes new alerts to the app without polling.
-do $$ begin
-  alter publication supabase_realtime add table anomaly_alerts;
-exception when duplicate_object then null; when undefined_object then null; end $$;
+-- ---------------------------------------------------------------------------
+-- Realtime. Only these tables emit; everything else the app reads on demand.
+-- Postgres Changes re-checks the RLS policies above per subscriber, so a
+-- published table leaks nothing a select wouldn't.
+-- ---------------------------------------------------------------------------
+
+-- replica identity full or an update/delete only ships the primary key, and
+-- Realtime can't evaluate a policy like owns_account(account_id) against a row
+-- it doesn't have: the event gets dropped instead of delivered.
+do $$
+declare t text;
+begin
+  foreach t in array array['anomaly_alerts', 'transfers', 'split_requests', 'split_participants']
+  loop
+    execute format('alter table %I replica identity full', t);
+    begin
+      execute format('alter publication supabase_realtime add table %I', t);
+    exception
+      -- already published, or no supabase_realtime publication on plain Postgres
+      when duplicate_object then null;
+      when undefined_object then null;
+    end;
+  end loop;
+end $$;
