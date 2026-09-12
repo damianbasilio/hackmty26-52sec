@@ -16,7 +16,13 @@ import rulesJson from '@contracts/fixtures/savings_rules.json';
 import scoresJson from '@contracts/fixtures/cashflow_scores.json';
 import subscriptionsJson from '@contracts/fixtures/subscriptions.json';
 
-import type { DataSource, TransactionQuery } from './DataSource';
+import type {
+  DataSource,
+  TransactionQuery,
+  Transfer,
+  TransferDraft,
+  TransferRecipient,
+} from './DataSource';
 
 const customers = customersJson as Customer[];
 const accounts = accountsJson as Account[];
@@ -29,6 +35,7 @@ const rules = rulesJson as SavingsRule[];
 /** Mutations only live in memory; a reload resets them. Good enough for the demo. */
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
 const activated = new Set<string>();
+const sentTransfers: Transfer[] = [];
 
 export class FixtureDataSource implements DataSource {
   async getCustomer(): Promise<Customer> {
@@ -80,5 +87,56 @@ export class FixtureDataSource implements DataSource {
 
   async activateSavingsRule(ruleId: string): Promise<void> {
     activated.add(ruleId);
+  }
+
+  async getRecipients(accountId: string): Promise<TransferRecipient[]> {
+    const own: TransferRecipient[] = accounts
+      .filter((account) => account.id !== accountId)
+      .map((account) => ({
+        id: `own_${account.id}`,
+        name: account.nickname,
+        bank: 'Capital One',
+        last_four: account.last_four,
+        account_id: account.id,
+      }));
+    const seen = new Set(own.map((r) => `${r.name}|${r.last_four ?? ''}`));
+    for (const transfer of sentTransfers.filter((t) => t.account_id === accountId)) {
+      const key = `${transfer.payee_name}|${transfer.payee_last_four ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      own.push({
+        id: `payee_${key}`,
+        name: transfer.payee_name,
+        bank: transfer.payee_bank,
+        last_four: transfer.payee_last_four,
+        account_id: transfer.payee_account_id,
+      });
+    }
+    return own;
+  }
+
+  async getTransfers(accountId: string): Promise<Transfer[]> {
+    return sentTransfers.filter((transfer) => transfer.account_id === accountId);
+  }
+
+  async createTransfer(draft: TransferDraft): Promise<Transfer> {
+    const already = sentTransfers.find((transfer) => transfer.id === draft.id);
+    if (already) return already;
+    const transfer: Transfer = {
+      id: draft.id,
+      account_id: draft.accountId,
+      payee_account_id: draft.recipient.account_id,
+      payee_name: draft.recipient.name,
+      payee_bank: draft.recipient.bank,
+      payee_last_four: draft.recipient.last_four,
+      amount_cents: draft.amountCents,
+      concept: draft.concept,
+      // Igual que contra la base: la app solo puede dejarla pendiente.
+      status: 'pending',
+      failure_reason: null,
+      created_at: new Date().toISOString(),
+    };
+    sentTransfers.unshift(transfer);
+    return transfer;
   }
 }

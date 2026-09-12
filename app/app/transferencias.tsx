@@ -12,63 +12,110 @@ import {
 import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { useAuth } from '@/components/AuthProvider';
-import {
-  TRANSFER_RECIPIENTS,
-  useBanking,
-  type TransferReceipt,
-  type TransferRecipient,
-} from '@/components/BankingProvider';
+import { useBanking } from '@/components/BankingProvider';
 import { Card } from '@/components/Card';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
+import { avatarTintFor, initialsFor } from '@/components/display';
 import { usePalette } from '@/components/palette';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
+import { newTransferId, type Transfer, type TransferRecipient } from '@/src/data/DataSource';
 import { formatCents } from '@/src/format';
 import { moneyInputToCents, normalizeMoneyInput } from '@/src/moneyInput';
 
 type Step = 'form' | 'confirm' | 'success';
 
+const NEW_PAYEE_ID = '__nuevo__';
+
+const STATUS_LABELS: Record<Transfer['status'], string> = {
+  pending: 'En proceso',
+  completed: 'Aplicada',
+  failed: 'No se pudo aplicar',
+  cancelled: 'Cancelada',
+};
+
 export default function TransferenciasScreen() {
   const palette = usePalette();
   const router = useRouter();
-  const { verifyTransactionPin, demoPin } = useAuth();
-  const { outgoingCents, sendTransfer } = useBanking();
+  const { verifyTransactionPin } = useAuth();
+  const {
+    recipients,
+    outgoingCents,
+    sendTransfer,
+    loading: loadingRecipients,
+    error: recipientsError,
+    reload: reloadRecipients,
+  } = useBanking();
   const [step, setStep] = useState<Step>('form');
-  const [recipient, setRecipient] = useState<TransferRecipient>(TRANSFER_RECIPIENTS[0]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [payeeName, setPayeeName] = useState('');
+  const [payeeBank, setPayeeBank] = useState('');
+  const [payeeLastFour, setPayeeLastFour] = useState('');
   const [amount, setAmount] = useState('');
   const [concept, setConcept] = useState('');
   const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<TransferReceipt | null>(null);
+  const [receipt, setReceipt] = useState<Transfer | null>(null);
+  // Clave de idempotencia: se fija al entrar a confirmar y sobrevive los
+  // reintentos, así un segundo toque no manda el dinero dos veces.
+  const [transferId, setTransferId] = useState<string | null>(null);
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
     return accounts.find((account) => account.type === 'checking') ?? accounts[0] ?? null;
   });
 
-  if (loading && !data) return <LoadingState label="Preparando transferencia…" />;
+  if ((loading && !data) || (loadingRecipients && recipients.length === 0)) {
+    return <LoadingState label="Preparando transferencia…" />;
+  }
   if (error || !data) return <ErrorState message={error ?? 'No encontramos tu cuenta.'} onRetry={reload} />;
+  if (recipientsError) return <ErrorState message={recipientsError} onRetry={reloadRecipients} />;
+
+  // El estrechamiento de `data` no sobrevive dentro de confirmTransfer.
+  const account = data;
+  const addingPayee = selectedId === NEW_PAYEE_ID || recipients.length === 0;
+  const recipient: TransferRecipient | null = addingPayee
+    ? payeeName.trim().length > 0
+      ? {
+          id: NEW_PAYEE_ID,
+          name: payeeName.trim(),
+          bank: payeeBank.trim() || null,
+          last_four: payeeLastFour.length === 4 ? payeeLastFour : null,
+          account_id: null,
+        }
+      : null
+    : recipients.find((item) => item.id === selectedId) ?? recipients[0];
 
   const amountCents = moneyInputToCents(amount);
   const availableCents = Math.max(0, data.balance_cents - outgoingCents);
 
   function continueToConfirmation() {
+    if (!recipient) {
+      setMessage('Escribe a quién le vas a transferir.');
+      return;
+    }
+    if (addingPayee && payeeLastFour.length > 0 && payeeLastFour.length !== 4) {
+      setMessage('Los últimos 4 dígitos deben ser exactamente cuatro.');
+      return;
+    }
     if (amountCents <= 0) {
       setMessage('Ingresa una cantidad mayor a cero.');
       return;
     }
     if (amountCents > availableCents) {
-      setMessage('La cantidad supera tu saldo disponible.');
+      setMessage(`No tienes saldo suficiente. Disponible: ${formatCents(availableCents)}.`);
       return;
     }
     setMessage(null);
+    setTransferId((current) => current ?? newTransferId());
     setStep('confirm');
   }
 
   async function confirmTransfer() {
+    if (!recipient || !transferId) return;
     if (pin.length !== 6) {
       setMessage('Ingresa tu PIN de 6 dígitos.');
       return;
@@ -81,14 +128,22 @@ export default function TransferenciasScreen() {
       setSubmitting(false);
       return;
     }
-    const result = await sendTransfer({
-      recipient,
-      amountCents,
-      concept: concept.trim() || 'Transferencia',
-    });
-    setReceipt(result);
-    setSubmitting(false);
-    setStep('success');
+    try {
+      const result = await sendTransfer({
+        id: transferId,
+        accountId: account.id,
+        recipient,
+        amountCents,
+        concept: concept.trim() || 'Transferencia',
+      });
+      setReceipt(result);
+      setStep('success');
+    } catch (cause) {
+      // El id no se regenera: si la fila sí entró, reintentar devuelve la misma.
+      setMessage(cause instanceof Error ? cause.message : 'No pudimos enviar tu transferencia.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (step === 'success' && receipt) {
@@ -104,15 +159,27 @@ export default function TransferenciasScreen() {
           </Reveal>
           <Reveal delay={60} style={styles.successCopy}>
             <Text style={styles.successTitle}>Transferencia enviada</Text>
-            <Text style={styles.successAmount}>{formatCents(receipt.amountCents)}</Text>
-            <Text style={[styles.successBody, { color: palette.muted }]}>a {receipt.recipient.name}</Text>
+            <Text style={styles.successAmount}>{formatCents(receipt.amount_cents)}</Text>
+            <Text style={[styles.successBody, { color: palette.muted }]}>a {receipt.payee_name}</Text>
           </Reveal>
           <Reveal delay={120} style={styles.successReceipt}>
             <Card tone="mint">
-              <SummaryRow label="Estado" value="Aplicada" valueColor={palette.positive} />
+              <SummaryRow
+                label="Estado"
+                value={STATUS_LABELS[receipt.status]}
+                valueColor={receipt.status === 'completed' ? palette.positive : palette.muted}
+              />
               <SummaryRow label="Concepto" value={receipt.concept} />
-              <SummaryRow label="Folio" value={receipt.id.replace('transfer_', '')} />
+              <SummaryRow label="Folio" value={receipt.id.replace('txf_', '')} />
             </Card>
+            {receipt.status === 'pending' ? (
+              <Text style={[styles.successNote, { color: palette.muted }]}>
+                El banco la está aplicando. Te avisamos en cuanto se acredite.
+              </Text>
+            ) : null}
+            {receipt.failure_reason ? (
+              <Text style={[styles.successNote, { color: palette.danger }]}>{receipt.failure_reason}</Text>
+            ) : null}
           </Reveal>
           <MotionPressable
             accessibilityRole="button"
@@ -161,31 +228,101 @@ export default function TransferenciasScreen() {
 
               <Reveal delay={50} style={styles.section}>
                 <Text style={styles.sectionTitle}>¿A quién?</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recipientList}>
-                  {TRANSFER_RECIPIENTS.map((item) => {
-                    const selected = recipient.id === item.id;
-                    return (
-                      <MotionPressable
-                        key={item.id}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        onPress={() => setRecipient(item)}
-                        style={[
-                          styles.recipient,
-                          {
-                            backgroundColor: selected ? palette.accentDeep : palette.surface,
-                            borderColor: selected ? palette.accentDeep : palette.border,
-                          },
-                        ]}>
-                        <View style={[styles.recipientAvatar, { backgroundColor: item.color }]}>
-                          <Text style={[styles.recipientInitials, { color: palette.accentDeep }]}>{item.initials}</Text>
-                        </View>
-                        <Text numberOfLines={1} style={[styles.recipientName, selected ? styles.selectedText : null]}>{item.name.split(' ')[0]}</Text>
-                        <Text style={[styles.recipientBank, { color: selected ? 'rgba(255,255,255,0.68)' : palette.muted }]}>{item.bank}</Text>
-                      </MotionPressable>
-                    );
-                  })}
-                </ScrollView>
+                {recipients.length === 0 ? (
+                  <Text style={[styles.emptyHint, { color: palette.muted }]}>
+                    Todavía no le has transferido a nadie. Escribe los datos de quien recibe y
+                    quedará guardado para la próxima.
+                  </Text>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recipientList}>
+                    {recipients.map((item) => {
+                      const selected = !addingPayee && recipient?.id === item.id;
+                      return (
+                        <MotionPressable
+                          key={item.id}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          onPress={() => setSelectedId(item.id)}
+                          style={[
+                            styles.recipient,
+                            {
+                              backgroundColor: selected ? palette.accentDeep : palette.surface,
+                              borderColor: selected ? palette.accentDeep : palette.border,
+                            },
+                          ]}>
+                          <View style={[styles.recipientAvatar, { backgroundColor: avatarTintFor(item.name) }]}>
+                            <Text style={[styles.recipientInitials, { color: palette.accentDeep }]}>
+                              {initialsFor(item.name)}
+                            </Text>
+                          </View>
+                          <Text numberOfLines={1} style={[styles.recipientName, selected ? styles.selectedText : null]}>
+                            {item.name.split(' ')[0]}
+                          </Text>
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.recipientBank, { color: selected ? 'rgba(255,255,255,0.68)' : palette.muted }]}>
+                            {item.account_id ? 'Cuenta propia' : item.bank ?? 'Otro banco'}
+                          </Text>
+                        </MotionPressable>
+                      );
+                    })}
+                    <MotionPressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Nuevo destinatario"
+                      accessibilityState={{ selected: addingPayee }}
+                      onPress={() => setSelectedId(NEW_PAYEE_ID)}
+                      style={[
+                        styles.recipient,
+                        {
+                          backgroundColor: addingPayee ? palette.accentDeep : palette.surface,
+                          borderColor: addingPayee ? palette.accentDeep : palette.border,
+                        },
+                      ]}>
+                      <View style={[styles.recipientAvatar, { backgroundColor: palette.accentSoft }]}>
+                        <Text style={[styles.recipientInitials, { color: palette.accentDeep }]}>+</Text>
+                      </View>
+                      <Text numberOfLines={1} style={[styles.recipientName, addingPayee ? styles.selectedText : null]}>
+                        Nuevo
+                      </Text>
+                      <Text style={[styles.recipientBank, { color: addingPayee ? 'rgba(255,255,255,0.68)' : palette.muted }]}>
+                        Otra cuenta
+                      </Text>
+                    </MotionPressable>
+                  </ScrollView>
+                )}
+
+                {addingPayee ? (
+                  <Card style={styles.payeeCard}>
+                    <TextInput
+                      accessibilityLabel="Nombre de quien recibe"
+                      maxLength={60}
+                      onChangeText={setPayeeName}
+                      placeholder="Nombre de quien recibe"
+                      placeholderTextColor={palette.muted}
+                      style={[styles.payeeInput, { color: palette.ink, borderBottomColor: palette.border }]}
+                      value={payeeName}
+                    />
+                    <TextInput
+                      accessibilityLabel="Banco"
+                      maxLength={40}
+                      onChangeText={setPayeeBank}
+                      placeholder="Banco (opcional)"
+                      placeholderTextColor={palette.muted}
+                      style={[styles.payeeInput, { color: palette.ink, borderBottomColor: palette.border }]}
+                      value={payeeBank}
+                    />
+                    <TextInput
+                      accessibilityLabel="Últimos 4 dígitos de la cuenta"
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      onChangeText={(value) => setPayeeLastFour(value.replace(/\D/g, ''))}
+                      placeholder="Últimos 4 dígitos (opcional)"
+                      placeholderTextColor={palette.muted}
+                      style={[styles.payeeInput, styles.payeeInputLast, { color: palette.ink }]}
+                      value={payeeLastFour}
+                    />
+                  </Card>
+                ) : null}
               </Reveal>
 
               <Reveal delay={100}>
@@ -231,11 +368,17 @@ export default function TransferenciasScreen() {
               layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
               style={styles.confirmStack}>
               <Card style={styles.confirmHero}>
-                <View style={[styles.confirmAvatar, { backgroundColor: recipient.color }]}>
-                  <Text style={[styles.confirmInitials, { color: palette.accentDeep }]}>{recipient.initials}</Text>
+                <View style={[styles.confirmAvatar, { backgroundColor: avatarTintFor(recipient?.name ?? '') }]}>
+                  <Text style={[styles.confirmInitials, { color: palette.accentDeep }]}>
+                    {initialsFor(recipient?.name ?? '')}
+                  </Text>
                 </View>
-                <Text style={styles.confirmName}>{recipient.name}</Text>
-                <Text style={[styles.confirmBank, { color: palette.muted }]}>{recipient.bank} ·· {recipient.accountLastFour}</Text>
+                <Text style={styles.confirmName}>{recipient?.name}</Text>
+                <Text style={[styles.confirmBank, { color: palette.muted }]}>
+                  {[recipient?.account_id ? 'Cuenta propia' : recipient?.bank, recipient?.last_four ? `·· ${recipient.last_four}` : null]
+                    .filter(Boolean)
+                    .join(' ') || 'Sin datos de banco'}
+                </Text>
                 <Text style={styles.confirmAmount}>{formatCents(amountCents)}</Text>
               </Card>
 
@@ -267,9 +410,6 @@ export default function TransferenciasScreen() {
                   style={[styles.pinInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink }]}
                   value={pin}
                 />
-                <MotionPressable onPress={() => setPin(demoPin)} style={styles.demoPinButton}>
-                  <Text style={[styles.demoPinLabel, { color: palette.accent }]}>Usar PIN de demostración</Text>
-                </MotionPressable>
               </Card>
 
               {message ? <Message text={message} /> : null}
@@ -330,6 +470,10 @@ const styles = StyleSheet.create({
   recipientName: { fontSize: 15, fontWeight: '700' },
   recipientBank: { fontSize: 11 },
   selectedText: { color: '#FFFFFF' },
+  emptyHint: { fontSize: 13, lineHeight: 18 },
+  payeeCard: { gap: 0, paddingVertical: 4 },
+  payeeInput: { minHeight: 50, fontSize: 15, borderBottomWidth: StyleSheet.hairlineWidth },
+  payeeInputLast: { borderBottomWidth: 0 },
   amountCard: { gap: 8 },
   amountLabel: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
   amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
@@ -365,5 +509,6 @@ const styles = StyleSheet.create({
   successTitle: { fontSize: 25, fontWeight: '700', letterSpacing: -0.65 },
   successAmount: { fontSize: 43, lineHeight: 49, fontWeight: '700', letterSpacing: -1.4, fontVariant: ['tabular-nums'] },
   successBody: { fontSize: 15 },
-  successReceipt: { alignSelf: 'stretch' },
+  successReceipt: { alignSelf: 'stretch', gap: 10 },
+  successNote: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
 });

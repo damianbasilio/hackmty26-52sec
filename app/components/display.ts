@@ -74,3 +74,19 @@ export function formatDayHeading(dayKey: string, today = todayKey()): string {
 export function formatSignedCents(cents: number): string {
   return cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
 }
+
+/** `Mariana Ríos` -> `MR`. Un solo nombre da una letra. */
+export function initialsFor(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  return (words[0][0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
+
+const AVATAR_TINTS = ['#E3F0FA', '#FCE7E5', '#E7F4EB', '#F3ECFB', '#FDF1DF'];
+
+/** Color estable por nombre: el mismo contacto sale igual en cada pantalla. */
+export function avatarTintFor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 100000;
+  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
+}
