@@ -273,6 +273,59 @@ Realtime hay que habilitarlo también en el dashboard: Database → Replication 
 Correr `schema.sql` agrega las tablas a la publicación, pero si el proyecto trae Realtime apagado
 no sale ningún evento.
 
+## Datos envenenados de Nessie — decisión del equipo
+
+La API key de Nessie arrastra basura de siembras viejas que **no se puede borrar del lado de
+Nessie**. Ya está sincronizada a Supabase:
+
+| Cliente de Nessie | Qué tiene mal |
+|---|---|
+| `870d2c18-5422-4710-89a9-de3bff8309f0` | nombre corrompido (`Ana Sofia Trevi?o Garza`) y una renta de `-95000000` centavos — **-$950,000.00** en vez de -$9,500.00, error de 100x anterior al fix de float |
+| `31715ba5-8ed1-482a-8fbf-e4674efd17c3` | cliente sin ninguna cuenta |
+
+El cliente limpio es **`c5333ecf-b2ce-4812-95a6-f31172e4812f`**, con 27 movimientos correctos.
+
+**Decisión: se borran de Supabase Y se marcan como excluidos.** Las dos cosas, porque ninguna
+sola alcanza:
+
+- Borrar solo, no dura. `sync_all()` recorre **todos** los clientes que ve la API key y los
+  vuelve a crear idénticos. Habría que re-borrar después de cada `POST /sync`, y el día que
+  alguien no lo haga, la demo sale con una renta de novecientos cincuenta mil pesos.
+- Marcar solo, deja la basura a la vista de cualquiera que abra el dashboard o corra un `select`.
+
+Cómo se sostiene la marca después del borrado: la exclusión **no vive en `customers`**, vive en
+`excluded_nessie_customers`, con el `nessie_customer_id` de llave. Borrar el cliente no borra la
+decisión. Cuando el sync lo revive, el trigger `customers_apply_exclusion` lo vuelve a marcar
+antes de que la fila llegue a la tabla.
+
+```bash
+psql "$SUPABASE_DB_URL" -f db/quarantine_nessie.sql
+```
+
+Idempotente: si ya no están, borra 0 filas y reporta lo mismo. Al final lista los movimientos
+por arriba de $500,000 que sigan vivos — si esa consulta devuelve algo, hay otro error de 100x
+que nadie ha visto todavía.
+
+### Qué protege esto, exactamente
+
+Un cliente excluido queda **inservible para una demo**, no solo feo:
+
+1. `owns_account()` filtra `excluded_at is null`. Como **toda** policy de **toda** tabla pasa por
+   ahí, la app queda ciega a sus movimientos, suscripciones, alertas y score de una sola vez.
+2. `link_customer_to_auth_user()` truena en vez de ligarlo.
+3. El trigger de signup lo salta.
+4. Y si alguien fuerza el vínculo con un `update` directo, el trigger pone `auth_user_id` de
+   vuelta en null. Comprobado.
+
+Para sacar a un cliente de la cuarentena, borra su fila de `excluded_nessie_customers` y limpia
+`excluded_at` y `exclusion_reason` a mano. No hay atajo, y así debe ser.
+
+### Nota para el carril B
+
+`fetch_current_customer()` en `engine/app/repository.py` no conoce `excluded_at`: con
+`ACTIVE_CUSTOMER_ID` vacío y más de un cliente sincronizado, sigue tronando por ambiguo aunque
+los otros estén excluidos. Mientras tanto, la solución es fijar `ACTIVE_CUSTOMER_ID`.
+
 ## Resetear
 ```sql
 drop view if exists enriched_transactions;
