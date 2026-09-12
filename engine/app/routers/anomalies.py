@@ -1,23 +1,40 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException
+
+from .. import repository
+from ..anomalies_engine import scan_anomalies
+from ..subscriptions_engine import detect_subscriptions
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
 
-NOT_READY = "Engine not implemented yet. App should keep reading /contracts/fixtures."
+VALID_RESOLUTIONS = {"dismissed", "confirmed_fraud", "confirmed_legit"}
 
 
 @router.get("")
 def list_alerts(account_id: str, include_resolved: bool = False) -> list[dict]:
     """Alert feed, most severe first. Response shape: AnomalyAlert[] in /contracts/types.ts."""
-    raise HTTPException(status_code=501, detail=NOT_READY)
+    return repository.fetch_anomaly_alerts(account_id, include_resolved)
 
 
 @router.post("/scan")
-def scan_account(account_id: str) -> list[dict]:
+def scan(account_id: str) -> list[dict]:
     """Score every recent movement and persist new alerts."""
-    raise HTTPException(status_code=501, detail=NOT_READY)
+    transactions = repository.fetch_transactions(account_id)
+    if not transactions:
+        raise HTTPException(status_code=404, detail="No transactions for this account")
+
+    merchants = repository.fetch_merchants()
+    subscriptions = detect_subscriptions(account_id, transactions, merchants)
+
+    alerts = scan_anomalies(account_id, transactions, merchants, subscriptions, datetime.now(timezone.utc))
+    return repository.upsert_anomaly_alerts(alerts)
 
 
 @router.post("/{alert_id}/resolve")
 def resolve_alert(alert_id: str, resolution: str) -> dict:
     """resolution is one of dismissed | confirmed_fraud | confirmed_legit."""
-    raise HTTPException(status_code=501, detail=NOT_READY)
+    if resolution not in VALID_RESOLUTIONS:
+        raise HTTPException(status_code=422, detail=f"resolution must be one of {sorted(VALID_RESOLUTIONS)}")
+    resolved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return repository.resolve_anomaly_alert(alert_id, resolution, resolved_at)
