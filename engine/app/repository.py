@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from .config import get_settings
@@ -147,7 +148,7 @@ def fetch_account(account_id: str) -> dict | None:
     res = (
         get_client()
         .table("accounts")
-        .select("id,customer_id,balance_cents,created_at")
+        .select("*")
         .eq("id", account_id)
         .limit(1)
         .execute()
@@ -383,3 +384,93 @@ def activate_savings_rule(rule_id: str, destination_account_id: str, activated_a
         .execute()
     )
     return res.data[0]
+
+
+def fetch_customer(customer_id: str) -> dict | None:
+    res = get_client().table("customers").select("*").eq("id", customer_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+# ---------------------------------------------------------------------------
+# Transfers. The app may only insert pending rows (db/schema.sql RLS); status,
+# nessie_transfer_id and transaction_id are written here, with the service role.
+# ---------------------------------------------------------------------------
+
+
+class DuplicateRow(RuntimeError):
+    """An insert hit a primary key that already exists."""
+
+
+_UNIQUE_VIOLATION = "23505"
+
+
+def fetch_transfer(transfer_id: str) -> dict | None:
+    res = get_client().table("transfers").select("*").eq("id", transfer_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def fetch_transfers(account_id: str) -> list[dict]:
+    res = (
+        get_client()
+        .table("transfers")
+        .select("*")
+        .eq("account_id", account_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data
+
+
+def insert_transfer(row: dict) -> dict:
+    try:
+        res = get_client().table("transfers").insert(row).execute()
+    except APIError as exc:
+        if exc.code == _UNIQUE_VIOLATION:
+            raise DuplicateRow(row["id"]) from exc
+        raise
+    return res.data[0]
+
+
+def update_transfer(transfer_id: str, fields: dict) -> dict:
+    res = get_client().table("transfers").update(fields).eq("id", transfer_id).execute()
+    return res.data[0]
+
+
+def sum_outgoing_transfer_holds_cents(account_id: str, exclude_transfer_id: str | None = None) -> int:
+    # pending counts too: money on its way out is not spendable twice
+    rows = (
+        get_client()
+        .table("transfers")
+        .select("id,amount_cents")
+        .eq("account_id", account_id)
+        .in_("status", ["pending", "completed"])
+        .execute()
+    ).data
+    return sum(row["amount_cents"] for row in rows if row["id"] != exclude_transfer_id)
+
+
+def sum_incoming_transfer_deposits_cents(account_id: str, ref_marker: str) -> int:
+    rows = (
+        get_client()
+        .table("transactions")
+        .select("amount_cents")
+        .eq("account_id", account_id)
+        .eq("status", "completed")
+        .gt("amount_cents", 0)
+        .like("raw_description", f"%{ref_marker}%")
+        .execute()
+    ).data
+    return sum(row["amount_cents"] for row in rows)
+
+
+def find_transaction_by_ref(account_id: str, ref: str) -> dict | None:
+    rows = (
+        get_client()
+        .table("transactions")
+        .select("id,amount_cents,raw_description")
+        .eq("account_id", account_id)
+        .like("raw_description", f"%{ref}")
+        .execute()
+    ).data
+    # LIKE treats "_" in ids as a wildcard; endswith is the exact check
+    return next((row for row in rows if row["raw_description"].endswith(ref)), None)

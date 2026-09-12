@@ -46,7 +46,7 @@ def to_cents(nessie_amount: float) -> int:
 
 
 def from_cents(cents: int) -> float:
-    """The inverse, for the one place we write TO Nessie: seeding demo data."""
+    """The inverse, for every write TO Nessie: demo seeding and real transfers."""
     return cents / 100
 
 
@@ -56,6 +56,10 @@ def get_customers() -> list[dict]:
 
 def get_accounts_for_customer(customer_id: str) -> list[dict]:
     return get(f"/customers/{customer_id}/accounts")
+
+
+def get_account(account_id: str) -> dict:
+    return get(f"/accounts/{account_id}")
 
 
 def get_purchases(account_id: str) -> list[dict]:
@@ -92,6 +96,19 @@ def create_merchant(name: str) -> dict:
 def create_deposit(account_id: str, amount: float, transaction_date: str, description: str) -> dict:
     return post(
         f"/accounts/{account_id}/deposits",
+        {
+            "medium": "balance",
+            "amount": amount,
+            "transaction_date": transaction_date,
+            "status": "completed",
+            "description": description,
+        },
+    )
+
+
+def create_withdrawal(account_id: str, amount: float, transaction_date: str, description: str) -> dict:
+    return post(
+        f"/accounts/{account_id}/withdrawals",
         {
             "medium": "balance",
             "amount": amount,
