@@ -11,10 +11,17 @@ this twice updates the same rows instead of duplicating them.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from . import nessie, repository
-from .enrichment import local_day_of_week, local_hour_of_day, normalize_merchant, population_zscores
+from .enrichment import (
+    format_mxn,
+    local_day_of_week,
+    local_hour_of_day,
+    normalize_merchant,
+    population_zscores,
+)
 from .models import Transaction
 
 _ACCOUNT_TYPE_MAP = {
@@ -22,6 +29,12 @@ _ACCOUNT_TYPE_MAP = {
     "savings": "savings",
     "credit card": "credit_card",
 }
+
+# Same line db/quarantine_nessie.sql checks: nothing real in this demo moves
+# more than $500,000, so a movement above it is a 100x float bug, not a rent.
+_SUSPICIOUS_AMOUNT_CENTS = 50_000_000
+# U+FFFD, or a "?" standing in for a letter: how "Treviño" came back from an old seed.
+_CORRUPTED_TEXT_RE = re.compile(r"�|\w\?\w")
 
 # Descriptors match enrichment.py's rules exactly, so the seeded data is
 # recognizable by every engine the same way the fixtures are.
@@ -40,18 +53,51 @@ _SEED_DEPOSITS = [(75, 14250), (45, 14250), (15, 14250)]
 _SEED_TRANSFERS = [(75, 9500), (45, 9500), (15, 9500)]
 
 
-def sync_all() -> dict[str, int]:
-    """Pulls every customer, account and transaction this API key can see."""
-    synced = {"customers": 0, "accounts": 0, "transactions": 0}
+def sync_all() -> dict:
+    """Pulls every customer, account and transaction this API key can see, minus the poison.
+
+    Nessie has no DELETE, so broken old seeds come back on every call.
+    Customers listed in excluded_nessie_customers (db/schema.sql) are skipped
+    before anything is written. Customers that look broken but aren't listed
+    are skipped too and reported under "suspicious" with the reasons, so a
+    person decides whether to quarantine them; the engine never edits that list.
+    """
+    excluded = repository.fetch_excluded_nessie_customers()
+    synced: dict = {"customers": 0, "accounts": 0, "transactions": 0, "excluded": [], "suspicious": []}
 
     for nessie_customer in nessie.get_customers():
-        customer = repository.upsert_customer(_map_customer(nessie_customer))
-        synced["customers"] += 1
+        nessie_id = nessie_customer["_id"]
+        if nessie_id in excluded:
+            synced["excluded"].append({"nessie_customer_id": nessie_id, "reason": excluded[nessie_id]})
+            continue
 
-        for nessie_account in nessie.get_accounts_for_customer(nessie_customer["_id"]):
-            account = repository.upsert_accounts([_map_account(customer["id"], nessie_account)])[0]
+        # Everything is pulled and checked before the first write, so a
+        # poisoned customer never lands in Supabase even partially.
+        customer_row = _map_customer(nessie_customer)
+        accounts = []
+        for nessie_account in nessie.get_accounts_for_customer(nessie_id):
+            account_row = _map_account(customer_row["id"], nessie_account)
+            accounts.append((account_row, _pull_transactions(account_row["id"], nessie_account["_id"])))
+
+        reasons = _suspicious_reasons(customer_row, accounts)
+        if reasons:
+            synced["suspicious"].append(
+                {
+                    "nessie_customer_id": nessie_id,
+                    "name": f"{customer_row['first_name']} {customer_row['last_name']}".strip(),
+                    "reasons": reasons,
+                }
+            )
+            continue
+
+        repository.upsert_customer(customer_row)
+        synced["customers"] += 1
+        for account_row, rows in accounts:
+            account = repository.upsert_accounts([account_row])[0]
+            repository.upsert_raw_transactions(rows)
+            _enrich_account_transactions(account["id"])
             synced["accounts"] += 1
-            synced["transactions"] += _sync_transactions(account["id"], nessie_account["_id"])
+            synced["transactions"] += len(rows)
 
     return synced
 
@@ -94,6 +140,23 @@ def seed_demo_data(now: datetime) -> dict:
     return {"customer_id": customer["_id"], "account_id": account["_id"]}
 
 
+def _suspicious_reasons(customer_row: dict, accounts: list[tuple[dict, list[dict]]]) -> list[str]:
+    reasons = []
+    name = f"{customer_row['first_name']} {customer_row['last_name']}".strip()
+    if _CORRUPTED_TEXT_RE.search(name):
+        reasons.append(f"El nombre llegó corrupto: {name}.")
+    if not accounts:
+        reasons.append("No tiene ninguna cuenta.")
+    for _, rows in accounts:
+        for row in rows:
+            if abs(row["amount_cents"]) > _SUSPICIOUS_AMOUNT_CENTS:
+                reasons.append(
+                    f"Movimiento de {format_mxn(row['amount_cents'])} ({row['raw_description']}), "
+                    f"arriba del tope de {format_mxn(_SUSPICIOUS_AMOUNT_CENTS)}."
+                )
+    return reasons
+
+
 def _map_customer(c: dict) -> dict:
     nessie_id = c["_id"]
     first_name = c.get("first_name") or ""
@@ -123,16 +186,13 @@ def _map_account(customer_id: str, a: dict) -> dict:
     }
 
 
-def _sync_transactions(account_id: str, nessie_account_id: str) -> int:
-    rows = (
+def _pull_transactions(account_id: str, nessie_account_id: str) -> list[dict]:
+    return (
         [_map_purchase(account_id, p) for p in nessie.get_purchases(nessie_account_id)]
         + [_map_deposit(account_id, d) for d in nessie.get_deposits(nessie_account_id)]
         + [_map_withdrawal(account_id, w) for w in nessie.get_withdrawals(nessie_account_id)]
         + [_map_transfer(account_id, t) for t in nessie.get_transfers(nessie_account_id)]
     )
-    repository.upsert_raw_transactions(rows)
-    _enrich_account_transactions(account_id)
-    return len(rows)
 
 
 def _occurred_at(date_str: str | None) -> str:
