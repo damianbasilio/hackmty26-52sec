@@ -9,7 +9,9 @@ from .models import Merchant, Transaction
 
 ROUND_UP_TARGET_CENTS = 1000
 FIXED_RECURRING_AMOUNT_CENTS = 50000
-SPEND_CAP_MARGIN = 1.1  # suggest a cap 10% above the highest recent month
+# Suggested cap: 10% above the highest recent month, rounded to whole pesos.
+SPEND_CAP_MARGIN_NUM = 11
+SPEND_CAP_MARGIN_DEN = 10
 
 FIXED_CATEGORIES = {
     "housing", "telecom", "utilities", "streaming", "fitness", "fees", "insurance",
@@ -104,7 +106,8 @@ def suggest_savings_rules(
     top_category = _top_variable_category(purchases, merchants)
     if top_category and top_category[0] not in existing_cap_categories:
         category, monthly_total = top_category
-        cap = round(monthly_total * SPEND_CAP_MARGIN / 100) * 100
+        padded = monthly_total * SPEND_CAP_MARGIN_NUM // SPEND_CAP_MARGIN_DEN
+        cap = (padded + 50) // 100 * 100
         suggestions.append(
             _base_rule(
                 account_id,
@@ -118,7 +121,7 @@ def suggest_savings_rules(
                 amount_cents=cap,
                 cadence="monthly",
                 category=category,
-                projected_annual_savings_cents=round((cap * 0.15) * 12),
+                projected_annual_savings_cents=cap * 15 // 100 * 12,
                 now=now,
             )
         )

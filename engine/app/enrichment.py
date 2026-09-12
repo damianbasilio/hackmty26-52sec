@@ -144,5 +144,5 @@ def population_zscores(amounts_cents: list[int]) -> list[float]:
 
 def format_mxn(cents: int) -> str:
     sign = "-" if cents < 0 else ""
-    pesos = abs(cents) / 100
-    return f"{sign}${pesos:,.2f}"
+    pesos, centavos = divmod(abs(cents), 100)
+    return f"{sign}${pesos:,}.{centavos:02d}"
