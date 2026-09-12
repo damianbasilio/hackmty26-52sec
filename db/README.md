@@ -48,10 +48,13 @@ Un conteo **más alto** que el esperado no siempre es un bug del seed: en cuanto
 
 **3. Ligar un usuario de Auth**
 Los fixtures traen `customers.auth_user_id` en null, así que recién sembrado **nadie ve nada**:
-la RLS filtra todo. Crea un usuario en Authentication → Users y lígalo:
-```sql
-update customers set auth_user_id = '<uuid del usuario>' where id = 'cus_0001';
-```
+la RLS filtra todo. Ver [Auth real](#auth-real) para el alta completa. La versión corta:
+
+1. Authentication → Users → Add user, con correo y contraseña.
+2. ```bash
+   psql "$SUPABASE_DB_URL" -v customer_key=cus_0001 -v auth_email=<correo> -f db/link_auth_user.sql
+   ```
+
 Si la app aparece vacía, revisa esto antes de sospechar de las policies.
 
 **4. Poblar lo que calcula el engine** (esto es del carril B, aquí solo va el orden)
@@ -78,19 +81,79 @@ vea a medias, es 0 filas en `transactions`, `subscriptions`, `anomaly_alerts`, `
 y `savings_rules`. El engine igual las lee y procesa, porque va con `service_role`. Por eso el
 síntoma clásico es "el engine ve 51 movimientos y la app ninguno".
 
-Para vincularlo, crea el usuario en Authentication → Users y liga por `nessie_customer_id`:
-```sql
-update customers set auth_user_id = '<uuid del usuario>'
-where nessie_customer_id = '<hex24 de nessie>';
-```
+Para vincularlo, crea el usuario en Authentication → Users y corre `db/link_auth_user.sql`
+con el `nessie_customer_id` como `customer_key` (ver [Auth real](#auth-real)).
+
 Un cliente por usuario de Auth: `auth_user_id` es `unique`, así que ligar el mismo uuid a dos
 clientes falla. Volver a correr `POST /sync` **no borra el vínculo** — el upsert va por
 `nessie_customer_id` y solo toca las columnas que manda, y `auth_user_id` no es una de ellas.
 
-## Probar la RLS
-Con la anon key y sin sesión, `transactions` y `enriched_transactions` deben dar **0 filas**.
-Con el usuario ligado al paso 3, **51 y 51**. Otro usuario autenticado distinto debe dar 0.
-La app solo puede escribir en `savings_rules`; un `update` a `transactions` afecta 0 filas.
+## Auth real
+
+El vínculo entre un usuario de Supabase Auth y una fila de `customers` **vive en la base**, no en
+el engine. Está en `db/schema.sql` y son dos piezas:
+
+| Pieza | Cuándo corre | Qué hace |
+|---|---|---|
+| `public.handle_new_auth_user()` + trigger `on_auth_user_created` | automático, al insertarse la fila en `auth.users` | liga el usuario recién creado con un customer libre |
+| `public.link_customer_to_auth_user(customer_key, auth_email)` | a mano | liga un par concreto y truena si no puede |
+
+**El engine no debe ligar usuarios.** Si `nessie_sync` empezara a mandar `auth_user_id` en su
+upsert habría dos dueños de la misma columna y el que corriera al final ganaría en silencio.
+
+### Alta de un usuario, de punta a punta
+
+**1. Crear el usuario.** Authentication → Users → Add user. También sirve el `signUp` de la app.
+No insertes en `auth.users` por SQL: GoTrue deja `confirmation_token`, `recovery_token`,
+`email_change` y `email_change_token_new` en null y después el login truena con
+`500 Database error querying schema`.
+
+**2. Ligarlo.** El trigger ya lo intentó solo. Busca un customer **sin dueño** en este orden:
+
+1. `raw_user_meta_data ->> 'customer_id'` — lo que manda el `signUp` de la app:
+   ```ts
+   supabase.auth.signUp({ email, password, options: { data: { customer_id: 'cus_0001' } } })
+   ```
+2. `raw_user_meta_data ->> 'nessie_customer_id'`.
+3. `customers.email` igual al correo del usuario, sin distinguir mayúsculas.
+
+Si ninguno pega, el trigger no hace nada y **el alta igual se completa**: un `raise` ahí adentro
+abortaría el signup con `Database error saving new user`, y perder el vínculo se arregla,
+perder la cuenta no. Para ligarlo después:
+
+```bash
+psql "$SUPABASE_DB_URL" \
+  -v customer_key=cus_0001 \
+  -v auth_email=ana.trevino@midominio.mx \
+  -f db/link_auth_user.sql
+```
+
+`customer_key` acepta `customers.id` o `nessie_customer_id`. Repetir el mismo par no hace nada;
+apuntar un usuario a un segundo customer truena a propósito (`auth_user_id` es `unique`).
+
+**3. Verificar.** No des por hecho que quedó: compruébalo con los dos usuarios.
+
+```bash
+psql "$SUPABASE_DB_URL" \
+  -v owner_email=ana.trevino@midominio.mx \
+  -v other_email=otro@midominio.mx \
+  -f db/verify_rls.sql
+```
+
+El script hace lo mismo que PostgREST en cada request — `set local role` más el GUC
+`request.jwt.claims` — así que lo que reporta es literalmente lo que ve la anon key:
+
+| Escenario | transactions | enriched | accounts | merchants |
+|---|---|---|---|---|
+| anon sin sesión | 0 | 0 | 0 | 18 |
+| dueño ligado | 51 | 51 | 2 | 18 |
+| otro usuario | 0 | 0 | 0 | 18 |
+
+Y el `update` a `transactions` del final debe reportar `UPDATE 0`: desde el cliente el ledger es
+de solo lectura. `merchants` en 18 en los tres casos es correcto — es catálogo público, sin dato
+personal.
+
+Si el dueño sale en 0, el vínculo no existe: revisa `select id, auth_user_id from customers`.
 
 ## Resetear
 ```sql
