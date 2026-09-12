@@ -1,6 +1,6 @@
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -22,256 +22,199 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useAuth } from '@/components/AuthProvider';
-import {
-  NEARBY_PARTICIPANTS,
-  useBanking,
-  type SplitParticipant,
-} from '@/components/BankingProvider';
 import { Card } from '@/components/Card';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
+import { dataSource, dataSourceMode, sharesFor, type Split, type SplitParticipant } from '@/src/data';
 import { formatCents } from '@/src/format';
 import { moneyInputToCents, normalizeMoneyInput } from '@/src/moneyInput';
 import { nearbySplit, type NearbyStatus } from '@/modules/expo-nearby-split';
 
-type Step = 'amount' | 'nearby' | 'join' | 'confirm' | 'success';
+type Step = 'amount' | 'join' | 'room';
 
-type SplitUpdate = {
-  type: 'split_update';
-  totalCents: number;
-  participantCount: number;
-  shares: { name: string; amountCents: number }[];
-};
+const AVATAR_TONES = ['#E3F0FA', '#FCE7E5', '#E7F4EB', '#F7ECD7', '#E9EAE2'];
 
-const OWNER: SplitParticipant = {
-  id: 'owner',
-  name: 'Ana Sofía',
-  initials: 'AS',
-  color: '#E3F0FA',
-};
-
-function sharesFor(totalCents: number, count: number): number[] {
-  if (count <= 0) return [];
-  const base = Math.floor(totalCents / count);
-  const remainder = totalCents - base * count;
-  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
-}
+/** El modo demo guarda en memoria: al cerrar la app no queda nada. */
+const IS_DEMO = dataSourceMode !== 'api';
 
 function initialsFor(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('') || 'I';
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'I'
+  );
+}
+
+function minutesLeft(expiresAt: string, now: number): number {
+  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - now) / 60000));
+}
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export default function DividirGastoScreen() {
   const palette = usePalette();
   const router = useRouter();
   const { verifyTransactionPin, demoPin } = useAuth();
-  const { createSplitRequest } = useBanking();
+
   const [step, setStep] = useState<Step>('amount');
   const [amount, setAmount] = useState('');
-  const [participants, setParticipants] = useState<SplitParticipant[]>([OWNER]);
-  const [scanning, setScanning] = useState(false);
-  const [nearbyStatus, setNearbyStatus] = useState<NearbyStatus>('stopped');
-  const [roomCode] = useState(() => String(1000 + (Date.now() % 9000)));
+  const [split, setSplit] = useState<Split | null>(null);
+  const [myParticipantId, setMyParticipantId] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
   const [joinName, setJoinName] = useState('');
-  const [joinPin, setJoinPin] = useState('');
-  const [incomingSplit, setIncomingSplit] = useState<SplitUpdate | null>(null);
-  const [joinedConfirmed, setJoinedConfirmed] = useState(false);
-  const [confirmedPeers, setConfirmedPeers] = useState<string[]>([]);
+  const [guestName, setGuestName] = useState('');
   const [pin, setPin] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const totalCents = moneyInputToCents(amount);
-  const shares = useMemo(() => sharesFor(totalCents, participants.length), [participants.length, totalCents]);
-  const nextNearby = NEARBY_PARTICIPANTS.find((candidate) =>
-    !participants.some((participant) => participant.id === candidate.id));
+  const [nearbyStatus, setNearbyStatus] = useState<NearbyStatus>('stopped');
+  const [now, setNow] = useState(() => Date.now());
 
+  const splitId = split?.request.id ?? null;
+  const totalCents = moneyInputToCents(amount);
+  const preview = useMemo(() => sharesFor(totalCents, 2), [totalCents]);
+
+  // Realtime: mientras la división esté abierta en pantalla, cualquier cambio de
+  // participantes llega solo. La baja es obligatoria — un canal filtrado en una
+  // demo de 36 horas se nota.
   useEffect(() => {
-    const statusSubscription = nearbySplit.addStatusListener((event) => {
-      setNearbyStatus(event.status);
-      if (event.status === 'error' || event.status === 'denied') {
-        setMessage(event.message ?? 'No pudimos conectar el teléfono cercano.');
-      }
-    });
-    const joinedSubscription = nearbySplit.addPeerJoinedListener((event) => {
-      if (step !== 'nearby') return;
-      setParticipants((current) => {
-        const id = `nearby_${event.peerId}`;
-        if (current.some((participant) => participant.id === id)) return current;
-        return [...current, {
-          id,
-          name: event.displayName,
-          initials: initialsFor(event.displayName),
-          color: ['#E3F0FA', '#FCE7E5', '#E7F4EB'][current.length % 3],
-        }];
-      });
-    });
-    const leftSubscription = nearbySplit.addPeerLeftListener((event) => {
-      if (step !== 'nearby') return;
-      setParticipants((current) => current.filter((participant) => participant.id !== `nearby_${event.peerId}`));
-      setConfirmedPeers((current) => current.filter((peerId) => peerId !== event.peerId));
-    });
-    const payloadSubscription = nearbySplit.addPayloadListener((event) => {
-      try {
-        const payload = JSON.parse(event.json) as SplitUpdate | { type: 'confirmation' };
-        if (payload.type === 'split_update' && step === 'join') {
-          setIncomingSplit(payload);
-        } else if (payload.type === 'confirmation' && step === 'nearby') {
-          setConfirmedPeers((current) => current.includes(event.peerId) ? current : [...current, event.peerId]);
-        }
-      } catch {
-        setMessage('Recibimos una actualización que no pudimos validar.');
-      }
-    });
-    return () => {
-      statusSubscription?.remove();
-      joinedSubscription?.remove();
-      leftSubscription?.remove();
-      payloadSubscription?.remove();
-    };
+    if (!splitId || step !== 'room') return;
+    const unsubscribe = dataSource.subscribeToSplit(splitId, setSplit);
+    return unsubscribe;
+  }, [splitId, step]);
+
+  // El código expira; sin este tic la pantalla anunciaría un código muerto.
+  useEffect(() => {
+    if (step !== 'room') return;
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
   }, [step]);
 
   useEffect(() => {
-    if (step !== 'nearby' || !nearbySplit.isAvailable) return;
-    const payload: SplitUpdate = {
-      type: 'split_update',
-      totalCents,
-      participantCount: participants.length,
-      shares: participants.map((participant, index) => ({
-        name: participant.name,
-        amountCents: shares[index],
-      })),
-    };
-    nearbySplit.broadcast(JSON.stringify(payload)).catch(() => {
-      setMessage('No pudimos actualizar todos los teléfonos.');
+    const subscription = nearbySplit.addStatusListener((event) => {
+      setNearbyStatus(event.status);
     });
-  }, [participants, shares, step, totalCents]);
+    return () => subscription?.remove();
+  }, []);
 
   useEffect(() => () => {
     nearbySplit.stop();
   }, []);
 
-  async function createRoom() {
+  const stopNearby = useCallback(() => {
+    nearbySplit.stop();
+    setNearbyStatus('stopped');
+  }, []);
+
+  async function createSplit() {
     if (totalCents <= 0) {
       setMessage('Ingresa la cantidad total que quieren dividir.');
       return;
     }
+    setBusy(true);
     setMessage(null);
-    setStep('nearby');
-    if (nearbySplit.isAvailable) {
-      const payload: SplitUpdate = {
-        type: 'split_update',
-        totalCents,
-        participantCount: 1,
-        shares: [{ name: OWNER.name, amountCents: totalCents }],
-      };
-      try {
-        await nearbySplit.startHost(OWNER.name, roomCode, JSON.stringify(payload));
-      } catch {
-        setMessage('No pudimos activar la conexión cercana. Puedes usar el modo demo.');
+    try {
+      const accounts = await dataSource.getAccounts();
+      const checking = accounts.find((account) => account.type === 'checking') ?? accounts[0];
+      if (!checking) throw new Error('No hay ninguna cuenta para cargar tu parte.');
+      const created = await dataSource.createSplit({ accountId: checking.id, totalCents });
+      setSplit(created);
+      setMyParticipantId(created.participants.find((person) => person.is_creator)?.id ?? null);
+      setStep('room');
+      // En iOS la cercanía solo anuncia presencia: el código y las partes ya
+      // viven en la base, y de ahí los lee cualquier teléfono.
+      if (nearbySplit.isAvailable) {
+        const owner = created.participants.find((person) => person.is_creator);
+        nearbySplit
+          .startHost(owner?.display_name ?? 'Anfitrión', created.request.code, '{}')
+          .catch(() => setNearbyStatus('error'));
       }
+    } catch (error) {
+      setMessage(errorText(error, 'No pudimos crear la división.'));
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function joinNearbyRoom() {
+  async function joinByCode() {
     if (!joinName.trim() || joinCode.length !== 4) {
       setMessage('Escribe tu nombre y el código de 4 dígitos del anfitrión.');
       return;
     }
+    setBusy(true);
     setMessage(null);
-    setIncomingSplit(null);
-    setJoinedConfirmed(false);
-    setNearbyStatus('browsing');
-    await nearbySplit.joinNearby(joinName.trim(), joinCode);
+    try {
+      const joined = await dataSource.joinSplitByCode(joinCode, joinName.trim());
+      setSplit(joined);
+      setMyParticipantId(
+        joined.participants.find((person) => person.display_name === joinName.trim())?.id ?? null,
+      );
+      setStep('room');
+    } catch (error) {
+      setMessage(errorText(error, 'No pudimos unirte a esa división.'));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function confirmJoinedShare() {
-    if (joinPin.length !== 6) {
+  async function addGuest() {
+    if (!split || !guestName.trim()) {
+      setMessage('Escribe el nombre de quien quieres agregar.');
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      setSplit(await dataSource.addSplitGuest(split.request.id, guestName.trim()));
+      setGuestName('');
+    } catch (error) {
+      setMessage(errorText(error, 'No pudimos agregar a esa persona.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payMyShare() {
+    if (!split || !myParticipantId) return;
+    if (pin.length !== 6) {
       setMessage('Ingresa tu PIN de 6 dígitos para autorizar el pago.');
       return;
     }
-    const verified = await verifyTransactionPin(joinPin);
-    if (!verified) {
-      setMessage('El PIN no coincide. Revisa e inténtalo nuevamente.');
-      return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (!(await verifyTransactionPin(pin))) {
+        setMessage('El PIN no coincide. Revisa e inténtalo nuevamente.');
+        return;
+      }
+      setSplit(await dataSource.paySplitShare(split.request.id, myParticipantId));
+      setPin('');
+    } catch (error) {
+      setMessage(errorText(error, 'No pudimos registrar tu pago.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function goBack() {
+    if (step === 'room') {
+      stopNearby();
+      setSplit(null);
+      setMyParticipantId(null);
+      setStep('amount');
+    } else if (step === 'join') {
+      setStep('amount');
+    } else {
+      router.back();
     }
     setMessage(null);
-    await nearbySplit.broadcast(JSON.stringify({ type: 'confirmation' }));
-    setJoinedConfirmed(true);
-  }
-
-  function addNearbyParticipant() {
-    if (!nextNearby || scanning) return;
-    setScanning(true);
-    setTimeout(() => {
-      setParticipants((current) => [...current, nextNearby]);
-      setScanning(false);
-    }, 680);
-  }
-
-  async function sendRequests() {
-    if (pin.length !== 6) {
-      setMessage('Ingresa tu PIN de 6 dígitos.');
-      return;
-    }
-    setSubmitting(true);
-    setMessage(null);
-    const verified = await verifyTransactionPin(pin);
-    if (!verified) {
-      setMessage('El PIN no coincide. Revisa e inténtalo nuevamente.');
-      setSubmitting(false);
-      return;
-    }
-    await createSplitRequest(totalCents, participants);
-    setSubmitting(false);
-    setStep('success');
-  }
-
-  if (step === 'success') {
-    return (
-      <PremiumSurface>
-        <View style={styles.successScreen}>
-          <Reveal style={[styles.successIcon, { backgroundColor: palette.positiveSoft }]}>
-            <SymbolView
-              name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }}
-              tintColor={palette.positive}
-              size={38}
-            />
-          </Reveal>
-          <Reveal delay={55} style={styles.successCopy}>
-            <Text style={styles.successTitle}>División creada</Text>
-            <Text style={styles.successAmount}>{formatCents(totalCents)}</Text>
-            <Text style={[styles.successBody, { color: palette.muted }]}>
-              Enviamos {participants.length - 1} {participants.length - 1 === 1 ? 'solicitud' : 'solicitudes'} de pago.
-            </Text>
-          </Reveal>
-          <Reveal delay={110} style={styles.successCard}>
-            <Card tone="mint">
-              {participants.slice(1).map((participant, index) => (
-                <View key={participant.id} style={styles.successRow}>
-                  <Text style={styles.successName}>{participant.name}</Text>
-                  <Text style={[styles.successShare, { color: palette.positive }]}>{formatCents(shares[index + 1])}</Text>
-                </View>
-              ))}
-            </Card>
-          </Reveal>
-          <MotionPressable
-            accessibilityRole="button"
-            onPress={() => router.replace('/' as never)}
-            style={[styles.primaryButton, { backgroundColor: palette.accentDeep }]}>
-            <Text style={styles.primaryLabel}>Volver al inicio</Text>
-          </MotionPressable>
-        </View>
-      </PremiumSurface>
-    );
   }
 
   return (
@@ -282,30 +225,22 @@ export default function DividirGastoScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}>
           <View style={styles.header}>
-            <MotionPressable
-              accessibilityLabel="Regresar"
-              hitSlop={10}
-              onPress={() => {
-                if (step === 'confirm') setStep('nearby');
-                else if (step === 'nearby' || step === 'join') {
-                  nearbySplit.stop();
-                  setStep('amount');
-                }
-                else router.back();
-              }}
-              style={styles.backButton}>
+            <MotionPressable accessibilityLabel="Regresar" hitSlop={10} onPress={goBack} style={styles.backButton}>
               <Text style={[styles.backGlyph, { color: palette.accentDeep }]}>‹</Text>
             </MotionPressable>
             <Text style={styles.title}>Dividir gasto</Text>
             <View style={styles.headerSpacer} />
           </View>
 
+          {IS_DEMO ? <DemoBanner /> : null}
+
           {step === 'amount' ? (
             <AmountStep
               amount={amount}
-              message={message}
+              busy={busy}
+              preview={preview}
               onAmountChange={(value) => setAmount(normalizeMoneyInput(value))}
-              onContinue={createRoom}
+              onContinue={createSplit}
               onJoin={() => {
                 setMessage(null);
                 setStep('join');
@@ -313,128 +248,87 @@ export default function DividirGastoScreen() {
             />
           ) : step === 'join' ? (
             <JoinStep
+              busy={busy}
               code={joinCode}
-              confirmed={joinedConfirmed}
-              incomingSplit={incomingSplit}
-              message={message}
               name={joinName}
-              nearbyStatus={nearbyStatus}
               onCodeChange={(value) => setJoinCode(value.replace(/\D/g, '').slice(0, 4))}
-              onConfirm={confirmJoinedShare}
-              onJoin={joinNearbyRoom}
+              onJoin={joinByCode}
               onNameChange={setJoinName}
-              onPinChange={(value) => setJoinPin(value.replace(/\D/g, ''))}
-              onUseDemoPin={() => setJoinPin(demoPin)}
-              pin={joinPin}
             />
-          ) : step === 'nearby' ? (
-            <NearbyStep
-              confirmedPeers={confirmedPeers}
-              isNativeAvailable={nearbySplit.isAvailable}
-              nextNearby={nextNearby}
+          ) : split ? (
+            <RoomStep
+              busy={busy}
+              demoPin={demoPin}
+              guestName={guestName}
+              minutesLeft={minutesLeft(split.request.code_expires_at, now)}
+              myParticipantId={myParticipantId}
               nearbyStatus={nearbyStatus}
-              onAdd={addNearbyParticipant}
-              onContinue={() => setStep('confirm')}
-              participants={participants}
-              roomCode={roomCode}
-              scanning={scanning}
-              shares={shares}
-              totalCents={totalCents}
+              onAddGuest={addGuest}
+              onGuestNameChange={setGuestName}
+              onPay={payMyShare}
+              onPinChange={(value) => setPin(value.replace(/\D/g, ''))}
+              onUseDemoPin={() => setPin(demoPin)}
+              pin={pin}
+              split={split}
             />
-          ) : (
-            <Animated.View
-              entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)}
-              style={styles.confirmStack}>
-              <HeroCard style={styles.confirmHero}>
-                <Text style={styles.confirmEyebrow}>SOLICITUD GRUPAL</Text>
-                <Text style={styles.confirmAmount}>{formatCents(totalCents)}</Text>
-                <Text style={styles.confirmCaption}>{participants.length} personas · actualización en tiempo real</Text>
-              </HeroCard>
+          ) : null}
 
-              <Card tone="sage" style={styles.confirmList}>
-                {participants.slice(1).map((participant, index) => (
-                  <View key={participant.id} style={styles.confirmRow}>
-                    <View style={[styles.smallAvatar, { backgroundColor: participant.color }]}>
-                      <Text style={[styles.smallInitials, { color: palette.accentDeep }]}>{participant.initials}</Text>
-                    </View>
-                    <Text style={styles.confirmName}>{participant.name}</Text>
-                    <Text style={styles.confirmShare}>{formatCents(shares[index + 1])}</Text>
-                  </View>
-                ))}
-              </Card>
-
-              <Card style={styles.pinCard}>
-                <View style={styles.pinHeading}>
-                  <SymbolView
-                    name={{ ios: 'lock.shield.fill', android: 'verified_user', web: 'shield' }}
-                    tintColor={palette.accent}
-                    size={22}
-                  />
-                  <View style={styles.pinCopy}>
-                    <Text style={styles.pinTitle}>Confirma las solicitudes</Text>
-                    <Text style={[styles.pinSubtitle, { color: palette.muted }]}>Autoriza con tu PIN antes de enviarlas.</Text>
-                  </View>
-                </View>
-                <TextInput
-                  accessibilityLabel="PIN para enviar solicitudes"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  onChangeText={(value) => setPin(value.replace(/\D/g, ''))}
-                  placeholder="••••••"
-                  placeholderTextColor={palette.muted}
-                  secureTextEntry
-                  style={[styles.pinInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink }]}
-                  value={pin}
-                />
-                <MotionPressable onPress={() => setPin(demoPin)} style={styles.demoPinButton}>
-                  <Text style={[styles.demoPinLabel, { color: palette.accent }]}>Usar PIN de demostración</Text>
-                </MotionPressable>
-              </Card>
-
-              {message ? <Message text={message} /> : null}
-              <MotionPressable
-                accessibilityRole="button"
-                disabled={submitting}
-                onPress={sendRequests}
-                style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: submitting ? 0.55 : 1 }]}>
-                <Text style={styles.primaryLabel}>{submitting ? 'Enviando…' : 'Enviar solicitudes'}</Text>
-              </MotionPressable>
-            </Animated.View>
-          )}
+          {message ? <Message text={message} /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </PremiumSurface>
   );
 }
 
+function DemoBanner() {
+  const palette = usePalette();
+  return (
+    <View style={[styles.demoBanner, { backgroundColor: palette.warningSoft, borderColor: palette.warning }]}>
+      <SymbolView
+        name={{ ios: 'exclamationmark.triangle.fill', android: 'warning', web: 'warning' }}
+        tintColor={palette.warning}
+        size={18}
+      />
+      <View style={styles.demoBannerCopy}>
+        <Text style={[styles.demoBannerTitle, { color: palette.warning }]}>MODO DEMOSTRACIÓN</Text>
+        <Text style={[styles.demoBannerBody, { color: palette.warning }]}>
+          La división vive solo en este teléfono y se borra al cerrar la app. Nadie más puede unirse
+          de verdad con el código.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function AmountStep({
   amount,
-  message,
+  busy,
+  preview,
   onAmountChange,
   onContinue,
   onJoin,
 }: {
   amount: string;
-  message: string | null;
+  busy: boolean;
+  preview: number[];
   onAmountChange: (value: string) => void;
   onContinue: () => void;
   onJoin: () => void;
 }) {
   const palette = usePalette();
+  const total = moneyInputToCents(amount);
   return (
     <>
       <Reveal>
         <HeroCard style={styles.amountHero}>
           <View style={styles.groupIcon}>
-            <SymbolView
-              name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }}
-              tintColor="#FFFFFF"
-              size={27}
-            />
+            <SymbolView name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }} tintColor="#FFFFFF" size={27} />
           </View>
           <View style={styles.amountHeroCopy}>
             <Text style={styles.amountHeroTitle}>Juntos, sin hacer cuentas.</Text>
-            <Text style={styles.amountHeroBody}>Acerca otro teléfono y la parte de cada persona cambia al instante.</Text>
+            <Text style={styles.amountHeroBody}>
+              Comparte el código y la parte de cada persona se actualiza sola en todos los teléfonos.
+            </Text>
           </View>
         </HeroCard>
       </Reveal>
@@ -454,146 +348,73 @@ function AmountStep({
               value={amount}
             />
           </View>
+          {total > 0 ? (
+            <Text style={[styles.amountHint, { color: palette.muted }]}>
+              Entre dos serían {formatCents(preview[0])} y {formatCents(preview[1])}.
+            </Text>
+          ) : null}
         </Card>
       </Reveal>
 
       <Reveal delay={110}>
         <Card tone="sage" style={styles.howCard}>
           <StepRow number="1" label="Escribe el total" />
-          <StepRow number="2" label="Acerca los teléfonos" />
-          <StepRow number="3" label="Confirma y solicita" />
+          <StepRow number="2" label="Comparte el código" />
+          <StepRow number="3" label="Cada quien paga su parte" />
         </Card>
       </Reveal>
 
-      {message ? <Message text={message} /> : null}
       <MotionPressable
         accessibilityRole="button"
+        disabled={busy}
         onPress={onContinue}
-        style={[styles.primaryButton, { backgroundColor: palette.accentDeep }]}>
-        <Text style={styles.primaryLabel}>Crear división</Text>
+        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+        <Text style={styles.primaryLabel}>{busy ? 'Creando…' : 'Crear división'}</Text>
       </MotionPressable>
-      {nearbySplit.isAvailable ? (
-        <MotionPressable
-          accessibilityRole="button"
-          onPress={onJoin}
-          style={[styles.secondaryButton, { borderColor: palette.border }]}>
-          <SymbolView
-            name={{ ios: 'iphone.radiowaves.left.and.right', android: 'sensors', web: 'sensors' }}
-            tintColor={palette.accentDeep}
-            size={20}
-          />
-          <Text style={[styles.secondaryLabel, { color: palette.accentDeep }]}>Unirme a una división cercana</Text>
-        </MotionPressable>
-      ) : null}
+
+      <MotionPressable
+        accessibilityRole="button"
+        onPress={onJoin}
+        style={[styles.secondaryButton, { borderColor: palette.border }]}>
+        <SymbolView
+          name={{ ios: 'number', android: 'tag', web: 'tag' }}
+          tintColor={palette.accentDeep}
+          size={20}
+        />
+        <Text style={[styles.secondaryLabel, { color: palette.accentDeep }]}>Unirme con un código</Text>
+      </MotionPressable>
     </>
   );
 }
 
 function JoinStep({
+  busy,
   code,
-  confirmed,
-  incomingSplit,
-  message,
   name,
-  nearbyStatus,
   onCodeChange,
-  onConfirm,
   onJoin,
   onNameChange,
-  onPinChange,
-  onUseDemoPin,
-  pin,
 }: {
+  busy: boolean;
   code: string;
-  confirmed: boolean;
-  incomingSplit: SplitUpdate | null;
-  message: string | null;
   name: string;
-  nearbyStatus: NearbyStatus;
   onCodeChange: (value: string) => void;
-  onConfirm: () => void;
   onJoin: () => void;
   onNameChange: (value: string) => void;
-  onPinChange: (value: string) => void;
-  onUseDemoPin: () => void;
-  pin: string;
 }) {
   const palette = usePalette();
-  const myShare = incomingSplit?.shares.find((share) => share.name === name.trim());
-  const connecting = nearbyStatus === 'browsing' || nearbyStatus === 'connecting';
-
-  if (incomingSplit && myShare) {
-    return (
-      <Animated.View entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)} style={styles.nearbyStack}>
-        <HeroCard style={styles.joinHero}>
-          <Text style={styles.confirmEyebrow}>TU PARTE</Text>
-          <Text style={styles.confirmAmount}>{formatCents(myShare.amountCents)}</Text>
-          <Text style={styles.confirmCaption}>
-            de {formatCents(incomingSplit.totalCents)} · {incomingSplit.participantCount} personas
-          </Text>
-        </HeroCard>
-
-        <Card tone="sage" style={styles.joinSummaryCard}>
-          <View style={styles.pinHeading}>
-            <View style={[styles.joinLiveIcon, { backgroundColor: palette.positiveSoft }]}>
-              <SymbolView
-                name={{ ios: 'checkmark.shield.fill', android: 'verified_user', web: 'shield' }}
-                tintColor={palette.positive}
-                size={22}
-              />
-            </View>
-            <View style={styles.pinCopy}>
-              <Text style={styles.pinTitle}>Importe sincronizado</Text>
-              <Text style={[styles.pinSubtitle, { color: palette.muted }]}>Si alguien más se conecta, esta cantidad cambiará al instante.</Text>
-            </View>
-          </View>
-        </Card>
-
-        {!confirmed ? (
-          <Card style={styles.pinCard}>
-            <Text style={styles.pinTitle}>Autoriza tu pago</Text>
-            <TextInput
-              accessibilityLabel="PIN para confirmar mi parte"
-              keyboardType="number-pad"
-              maxLength={6}
-              onChangeText={onPinChange}
-              placeholder="••••••"
-              placeholderTextColor={palette.muted}
-              secureTextEntry
-              style={[styles.pinInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink }]}
-              value={pin}
-            />
-            <MotionPressable onPress={onUseDemoPin} style={styles.demoPinButton}>
-              <Text style={[styles.demoPinLabel, { color: palette.accent }]}>Usar PIN de demostración</Text>
-            </MotionPressable>
-          </Card>
-        ) : null}
-
-        {message ? <Message text={message} /> : null}
-        <MotionPressable
-          accessibilityRole="button"
-          disabled={confirmed}
-          onPress={onConfirm}
-          style={[styles.primaryButton, { backgroundColor: confirmed ? palette.positive : palette.accentDeep }]}>
-          <Text style={styles.primaryLabel}>{confirmed ? 'Pago confirmado' : `Confirmar ${formatCents(myShare.amountCents)}`}</Text>
-        </MotionPressable>
-      </Animated.View>
-    );
-  }
-
   return (
     <Animated.View entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)} style={styles.nearbyStack}>
       <HeroCard style={styles.joinHero}>
         <View style={styles.groupIcon}>
-          <SymbolView
-            name={{ ios: 'iphone.radiowaves.left.and.right', android: 'sensors', web: 'sensors' }}
-            tintColor="#FFFFFF"
-            size={26}
-          />
+          <SymbolView name={{ ios: 'number', android: 'tag', web: 'tag' }} tintColor="#FFFFFF" size={26} />
         </View>
         <View style={styles.amountHeroCopy}>
-          <Text style={styles.amountHeroTitle}>Acércate al anfitrión.</Text>
-          <Text style={styles.amountHeroBody}>La conexión es local y cifrada. El código evita que otro grupo se una por accidente.</Text>
+          <Text style={styles.amountHeroTitle}>Pide el código.</Text>
+          <Text style={styles.amountHeroBody}>
+            Funciona en cualquier teléfono, aunque no estén en el mismo lugar. El código caduca a los
+            15 minutos.
+          </Text>
         </View>
       </HeroCard>
 
@@ -603,7 +424,7 @@ function JoinStep({
           <TextInput
             accessibilityLabel="Tu nombre"
             autoCapitalize="words"
-            editable={!connecting}
+            editable={!busy}
             onChangeText={onNameChange}
             placeholder="Mariana Ríos"
             placeholderTextColor={palette.muted}
@@ -615,7 +436,7 @@ function JoinStep({
           <Text style={styles.fieldLabel}>Código del anfitrión</Text>
           <TextInput
             accessibilityLabel="Código del anfitrión"
-            editable={!connecting}
+            editable={!busy}
             keyboardType="number-pad"
             maxLength={4}
             onChangeText={onCodeChange}
@@ -627,141 +448,209 @@ function JoinStep({
         </View>
       </Card>
 
-      {connecting ? (
-        <Card tone="mint" style={styles.connectingCard}>
-          <NearbyPulse active />
-          <View style={styles.nearbyCopy}>
-            <Text style={[styles.nearbyTitle, { color: palette.positive }]}>Buscando la división…</Text>
-            <Text style={[styles.nearbyHint, { color: palette.muted }]}>Mantén ambos teléfonos cerca y la app abierta.</Text>
-          </View>
-        </Card>
-      ) : null}
-      {message ? <Message text={message} /> : null}
       <MotionPressable
         accessibilityRole="button"
-        disabled={connecting}
+        disabled={busy}
         onPress={onJoin}
-        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: connecting ? 0.55 : 1 }]}>
-        <Text style={styles.primaryLabel}>{connecting ? 'Conectando…' : 'Buscar división cercana'}</Text>
+        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+        <Text style={styles.primaryLabel}>{busy ? 'Uniéndote…' : 'Unirme a la división'}</Text>
       </MotionPressable>
     </Animated.View>
   );
 }
 
-function NearbyStep({
-  confirmedPeers,
-  isNativeAvailable,
-  nextNearby,
+function RoomStep({
+  busy,
+  demoPin,
+  guestName,
+  minutesLeft: remaining,
+  myParticipantId,
   nearbyStatus,
-  onAdd,
-  onContinue,
-  participants,
-  roomCode,
-  scanning,
-  shares,
-  totalCents,
+  onAddGuest,
+  onGuestNameChange,
+  onPay,
+  onPinChange,
+  onUseDemoPin,
+  pin,
+  split,
 }: {
-  confirmedPeers: string[];
-  isNativeAvailable: boolean;
-  nextNearby?: SplitParticipant;
+  busy: boolean;
+  demoPin: string;
+  guestName: string;
+  minutesLeft: number;
+  myParticipantId: string | null;
   nearbyStatus: NearbyStatus;
-  onAdd: () => void;
-  onContinue: () => void;
-  participants: SplitParticipant[];
-  roomCode: string;
-  scanning: boolean;
-  shares: number[];
-  totalCents: number;
+  onAddGuest: () => void;
+  onGuestNameChange: (value: string) => void;
+  onPay: () => void;
+  onPinChange: (value: string) => void;
+  onUseDemoPin: () => void;
+  pin: string;
+  split: Split;
 }) {
   const palette = usePalette();
+  const me = split.participants.find((person) => person.id === myParticipantId) ?? null;
+  const isCreator = me?.is_creator ?? false;
+  const pending = split.participants.filter((person) => !person.paid).length;
+  const settled = split.request.status === 'settled';
+  const expired = remaining === 0;
+
   return (
     <Animated.View layout={LinearTransition.duration(240).reduceMotion(ReduceMotion.System)} style={styles.nearbyStack}>
       <Card style={styles.liveCard}>
         <View style={styles.liveHeading}>
-          <View style={[styles.liveDot, { backgroundColor: palette.positive }]} />
-          <Text style={[styles.liveLabel, { color: palette.positive }]}>DIVISIÓN EN VIVO</Text>
+          <View style={[styles.liveDot, { backgroundColor: settled ? palette.positive : palette.accent }]} />
+          <Text style={[styles.liveLabel, { color: settled ? palette.positive : palette.accent }]}>
+            {settled ? 'DIVISIÓN LIQUIDADA' : 'DIVISIÓN EN VIVO'}
+          </Text>
         </View>
-        <Text style={styles.liveAmount}>{formatCents(totalCents)}</Text>
+        <Text style={styles.liveAmount}>{formatCents(split.request.total_cents)}</Text>
         <Text style={[styles.liveMeta, { color: palette.muted }]}>
-          {participants.length} {participants.length === 1 ? 'persona conectada' : 'personas conectadas'}
+          {split.participants.length}{' '}
+          {split.participants.length === 1 ? 'persona' : 'personas'} ·{' '}
+          {settled ? 'todos pagaron' : `faltan ${pending} por pagar`}
         </Text>
-        {isNativeAvailable ? (
-          <View style={[styles.roomCodePill, { backgroundColor: palette.accentSoft }]}>
-            <Text style={[styles.roomCodeLabel, { color: palette.muted }]}>Código</Text>
-            <Text style={[styles.roomCodeValue, { color: palette.accentDeep }]}>{roomCode}</Text>
-          </View>
-        ) : null}
+        <View style={[styles.roomCodePill, { backgroundColor: palette.accentSoft }]}>
+          <Text style={[styles.roomCodeLabel, { color: palette.muted }]}>Código</Text>
+          <Text style={[styles.roomCodeValue, { color: palette.accentDeep }]}>{split.request.code}</Text>
+        </View>
+        <Text style={[styles.codeExpiry, { color: expired ? palette.danger : palette.muted }]}>
+          {expired ? 'El código ya caducó: nadie más puede unirse.' : `Caduca en ${remaining} min`}
+        </Text>
       </Card>
 
       <View style={styles.participantSection}>
         <Text style={styles.sectionTitle}>Cada persona paga</Text>
         <Card tone="sage" style={styles.participantList}>
-          {participants.map((participant, index) => (
-            <Animated.View
-              key={`${participant.id}-${shares[index]}`}
-              entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)}
-              layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
-              style={[styles.participantRow, index < participants.length - 1 ? { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth } : null]}>
-              <View style={[styles.participantAvatar, { backgroundColor: participant.color }]}>
-                <Text style={[styles.participantInitials, { color: palette.accentDeep }]}>{participant.initials}</Text>
-              </View>
-              <View style={styles.participantCopy}>
-                <Text style={styles.participantName}>{participant.id === OWNER.id ? 'Tú' : participant.name}</Text>
-                <Text style={[styles.participantStatus, { color: confirmedPeers.includes(participant.id.replace('nearby_', '')) ? palette.positive : palette.muted }]}>
-                  {participant.id === OWNER.id
-                    ? 'Anfitriona'
-                    : confirmedPeers.includes(participant.id.replace('nearby_', ''))
-                      ? 'Pago confirmado'
-                      : 'Listo para confirmar'}
-                </Text>
-              </View>
-              <Text style={styles.participantShare}>{formatCents(shares[index])}</Text>
-            </Animated.View>
+          {split.participants.map((person, index) => (
+            <ParticipantRow
+              key={person.id}
+              isLast={index === split.participants.length - 1}
+              isMe={person.id === myParticipantId}
+              participant={person}
+              tone={AVATAR_TONES[index % AVATAR_TONES.length]}
+            />
           ))}
         </Card>
+        <Text style={[styles.shareNote, { color: palette.muted }]}>
+          El total se reparte en partes iguales y el sobrante de centavos se le da a quien entró
+          primero, así la suma siempre cuadra con {formatCents(split.request.total_cents)}.
+        </Text>
       </View>
 
-      {isNativeAvailable ? (
-        <View style={styles.nativeNearbyStack}>
-          <Card tone="mint" style={styles.connectingCard}>
-            <NearbyPulse active={nearbyStatus !== 'error' && nearbyStatus !== 'denied'} />
-            <View style={styles.nearbyCopy}>
-              <Text style={[styles.nearbyTitle, { color: palette.positive }]}>Conexión cercana activa</Text>
-              <Text style={[styles.nearbyHint, { color: palette.muted }]}>Comparte el código y mantengan ambos teléfonos cerca.</Text>
+      {me && !me.paid ? (
+        <Card style={styles.pinCard}>
+          <View style={styles.pinHeading}>
+            <SymbolView
+              name={{ ios: 'lock.shield.fill', android: 'verified_user', web: 'shield' }}
+              tintColor={palette.accent}
+              size={22}
+            />
+            <View style={styles.pinCopy}>
+              <Text style={styles.pinTitle}>Paga tu parte</Text>
+              <Text style={[styles.pinSubtitle, { color: palette.muted }]}>
+                Se manda como transferencia desde tu cuenta. Autoriza con tu PIN.
+              </Text>
             </View>
-          </Card>
-          {nextNearby ? (
-            <MotionPressable accessibilityRole="button" disabled={scanning} onPress={onAdd} style={styles.demoLink}>
-              <Text style={[styles.demoLinkText, { color: palette.accent }]}>Simular otro teléfono para la demo</Text>
-            </MotionPressable>
-          ) : null}
-        </View>
-      ) : nextNearby ? (
-        <MotionPressable
-          accessibilityRole="button"
-          disabled={scanning}
-          onPress={onAdd}
-          style={[styles.nearbyButton, { backgroundColor: palette.accentSoft, borderColor: palette.border }]}>
-          <NearbyPulse active={scanning} />
-          <View style={styles.nearbyCopy}>
-            <Text style={[styles.nearbyTitle, { color: palette.accentDeep }]}>{scanning ? 'Detectando teléfono…' : 'Acercar otro teléfono'}</Text>
-            <Text style={[styles.nearbyHint, { color: palette.muted }]}>La cantidad se recalcula automáticamente.</Text>
           </View>
-          <Text style={[styles.nearbyChevron, { color: palette.accent }]}>+</Text>
-        </MotionPressable>
-      ) : (
-        <Card tone="mint">
-          <Text style={[styles.allReady, { color: palette.positive }]}>Todos los teléfonos de la demostración están conectados.</Text>
+          <TextInput
+            accessibilityLabel="PIN para autorizar el pago"
+            keyboardType="number-pad"
+            maxLength={6}
+            onChangeText={onPinChange}
+            placeholder="••••••"
+            placeholderTextColor={palette.muted}
+            secureTextEntry
+            style={[styles.pinInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink }]}
+            value={pin}
+          />
+          <MotionPressable onPress={onUseDemoPin} style={styles.demoPinButton}>
+            <Text style={[styles.demoPinLabel, { color: palette.accent }]}>Usar PIN de demostración</Text>
+          </MotionPressable>
+          <MotionPressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={onPay}
+            style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+            <Text style={styles.primaryLabel}>
+              {busy ? 'Enviando…' : `Pagar ${formatCents(me.share_cents)}`}
+            </Text>
+          </MotionPressable>
         </Card>
-      )}
+      ) : null}
 
-      <MotionPressable
-        accessibilityRole="button"
-        disabled={participants.length < 2}
-        onPress={onContinue}
-        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: participants.length < 2 ? 0.42 : 1 }]}>
-        <Text style={styles.primaryLabel}>Continuar con {participants.length - 1} {participants.length - 1 === 1 ? 'solicitud' : 'solicitudes'}</Text>
-      </MotionPressable>
+      {isCreator && !settled ? (
+        <Card style={styles.joinFormCard}>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Agregar a alguien que no tiene la app</Text>
+            <TextInput
+              accessibilityLabel="Nombre de la persona a agregar"
+              autoCapitalize="words"
+              editable={!busy}
+              onChangeText={onGuestNameChange}
+              placeholder="Nombre"
+              placeholderTextColor={palette.muted}
+              style={[styles.joinInput, { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink }]}
+              value={guestName}
+            />
+          </View>
+          <MotionPressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={onAddGuest}
+            style={[styles.secondaryButton, { borderColor: palette.border }]}>
+            <Text style={[styles.secondaryLabel, { color: palette.accentDeep }]}>Agregar y repartir de nuevo</Text>
+          </MotionPressable>
+        </Card>
+      ) : null}
+
+      {nearbySplit.isAvailable && nearbyStatus !== 'stopped' ? (
+        <Card tone="mint" style={styles.connectingCard}>
+          <NearbyPulse active={nearbyStatus !== 'error' && nearbyStatus !== 'denied'} />
+          <View style={styles.nearbyCopy}>
+            <Text style={[styles.nearbyTitle, { color: palette.positive }]}>Cercanía activa</Text>
+            <Text style={[styles.nearbyHint, { color: palette.muted }]}>
+              Atajo de iPhone para verse entre teléfonos. El código funciona igual sin esto.
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+function ParticipantRow({
+  isLast,
+  isMe,
+  participant,
+  tone,
+}: {
+  isLast: boolean;
+  isMe: boolean;
+  participant: SplitParticipant;
+  tone: string;
+}) {
+  const palette = usePalette();
+  return (
+    <Animated.View
+      entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)}
+      layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
+      style={[
+        styles.participantRow,
+        isLast ? null : { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth },
+      ]}>
+      <View style={[styles.participantAvatar, { backgroundColor: tone }]}>
+        <Text style={[styles.participantInitials, { color: palette.accentDeep }]}>
+          {initialsFor(participant.display_name)}
+        </Text>
+      </View>
+      <View style={styles.participantCopy}>
+        <Text style={styles.participantName}>{isMe ? 'Tú' : participant.display_name}</Text>
+        <Text style={[styles.participantStatus, { color: participant.paid ? palette.positive : palette.muted }]}>
+          {participant.paid ? 'Ya pagó' : participant.is_creator ? 'Anfitrión · falta pagar' : 'Falta pagar'}
+        </Text>
+      </View>
+      <Text style={styles.participantShare}>{formatCents(participant.share_cents)}</Text>
     </Animated.View>
   );
 }
@@ -781,11 +670,7 @@ function NearbyPulse({ active }: { active: boolean }) {
   return (
     <View style={styles.pulseWrap}>
       <Animated.View style={[styles.pulseRing, { borderColor: palette.accent }, animatedStyle]} />
-      <SymbolView
-        name={{ ios: 'wave.3.right', android: 'sensors', web: 'sensors' }}
-        tintColor={palette.accent}
-        size={22}
-      />
+      <SymbolView name={{ ios: 'wave.3.right', android: 'sensors', web: 'sensors' }} tintColor={palette.accent} size={22} />
     </View>
   );
 }
@@ -805,7 +690,9 @@ function StepRow({ number, label }: { number: string; label: string }) {
 function Message({ text }: { text: string }) {
   const palette = usePalette();
   return (
-    <Animated.View entering={FadeIn.duration(160).reduceMotion(ReduceMotion.System)} style={[styles.message, { backgroundColor: palette.dangerSoft }]}>
+    <Animated.View
+      entering={FadeIn.duration(160).reduceMotion(ReduceMotion.System)}
+      style={[styles.message, { backgroundColor: palette.dangerSoft }]}>
       <Text style={[styles.messageText, { color: palette.danger }]}>{text}</Text>
     </Animated.View>
   );
@@ -819,6 +706,10 @@ const styles = StyleSheet.create({
   backGlyph: { fontSize: 38, lineHeight: 40, fontWeight: '300' },
   headerSpacer: { width: 42 },
   title: { fontSize: 18, fontWeight: '700' },
+  demoBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 13, paddingVertical: 11 },
+  demoBannerCopy: { flex: 1, gap: 3, backgroundColor: 'transparent' },
+  demoBannerTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  demoBannerBody: { fontSize: 12, lineHeight: 17 },
   amountHero: { minHeight: 226, justifyContent: 'space-between' },
   groupIcon: { width: 50, height: 50, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
   amountHeroCopy: { gap: 9, backgroundColor: 'transparent' },
@@ -827,6 +718,7 @@ const styles = StyleSheet.create({
   amountCard: { alignItems: 'center', gap: 10 },
   amountLabel: { fontSize: 13, fontWeight: '600' },
   amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
+  amountHint: { fontSize: 12, textAlign: 'center' },
   currency: { fontSize: 34, lineHeight: 44, fontWeight: '600' },
   amountInput: { minWidth: 100, maxWidth: 230, fontSize: 44, lineHeight: 52, fontWeight: '700', letterSpacing: -1.5, textAlign: 'center', fontVariant: ['tabular-nums'] },
   howCard: { gap: 12 },
@@ -846,18 +738,17 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 13, fontWeight: '600' },
   joinInput: { minHeight: 54, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, fontSize: 16 },
   codeInput: { minHeight: 58, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, fontSize: 25, fontWeight: '700', letterSpacing: 9, textAlign: 'center', fontVariant: ['tabular-nums'] },
-  joinSummaryCard: { gap: 12 },
-  joinLiveIcon: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   nearbyStack: { gap: 18 },
   liveCard: { alignItems: 'center', paddingVertical: 24, gap: 7 },
   liveHeading: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'transparent' },
   liveDot: { width: 7, height: 7, borderRadius: 4 },
   liveLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   liveAmount: { fontSize: 43, lineHeight: 49, fontWeight: '700', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
-  liveMeta: { fontSize: 13 },
+  liveMeta: { fontSize: 13, textAlign: 'center' },
   roomCodePill: { marginTop: 5, minHeight: 38, borderRadius: 14, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 8 },
   roomCodeLabel: { fontSize: 12, fontWeight: '600' },
   roomCodeValue: { fontSize: 17, fontWeight: '800', letterSpacing: 2.5, fontVariant: ['tabular-nums'] },
+  codeExpiry: { fontSize: 11 },
   participantSection: { gap: 11 },
   sectionTitle: { fontSize: 21, fontWeight: '700', letterSpacing: -0.4 },
   participantList: { padding: 5, gap: 0 },
@@ -868,29 +759,13 @@ const styles = StyleSheet.create({
   participantName: { fontSize: 15, fontWeight: '700' },
   participantStatus: { fontSize: 11 },
   participantShare: { fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  nearbyButton: { minHeight: 78, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  shareNote: { fontSize: 11, lineHeight: 16 },
   pulseWrap: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
   pulseRing: { position: 'absolute', width: 42, height: 42, borderRadius: 21, borderWidth: 2 },
   nearbyCopy: { flex: 1, gap: 4, backgroundColor: 'transparent' },
   nearbyTitle: { fontSize: 15, fontWeight: '700' },
   nearbyHint: { fontSize: 11, lineHeight: 15 },
-  nearbyChevron: { fontSize: 27, fontWeight: '400' },
-  nativeNearbyStack: { gap: 8 },
   connectingCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  demoLink: { minHeight: 38, alignItems: 'center', justifyContent: 'center' },
-  demoLinkText: { fontSize: 12, fontWeight: '700' },
-  allReady: { fontSize: 13, lineHeight: 18, fontWeight: '600', textAlign: 'center' },
-  confirmStack: { gap: 16 },
-  confirmHero: { minHeight: 178, justifyContent: 'center', alignItems: 'center', gap: 7 },
-  confirmEyebrow: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
-  confirmAmount: { color: '#FFFFFF', fontSize: 42, lineHeight: 48, fontWeight: '700', letterSpacing: -1.4, fontVariant: ['tabular-nums'] },
-  confirmCaption: { color: 'rgba(255,255,255,0.76)', fontSize: 13 },
-  confirmList: { paddingVertical: 7 },
-  confirmRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: 'transparent' },
-  smallAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  smallInitials: { fontSize: 13, fontWeight: '700' },
-  confirmName: { flex: 1, fontSize: 14, fontWeight: '600' },
-  confirmShare: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   pinCard: { gap: 14 },
   pinHeading: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: 'transparent' },
   pinCopy: { flex: 1, gap: 3, backgroundColor: 'transparent' },
@@ -899,14 +774,4 @@ const styles = StyleSheet.create({
   pinInput: { minHeight: 58, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, fontSize: 24, fontWeight: '700', letterSpacing: 10, textAlign: 'center' },
   demoPinButton: { minHeight: 34, alignItems: 'center', justifyContent: 'center' },
   demoPinLabel: { fontSize: 13, fontWeight: '600' },
-  successScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 86, paddingBottom: 42, alignItems: 'center', gap: 22 },
-  successIcon: { width: 82, height: 82, borderRadius: 41, alignItems: 'center', justifyContent: 'center' },
-  successCopy: { alignItems: 'center', gap: 7 },
-  successTitle: { fontSize: 25, fontWeight: '700', letterSpacing: -0.65 },
-  successAmount: { fontSize: 43, lineHeight: 49, fontWeight: '700', letterSpacing: -1.4, fontVariant: ['tabular-nums'] },
-  successBody: { fontSize: 14, textAlign: 'center' },
-  successCard: { alignSelf: 'stretch' },
-  successRow: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, backgroundColor: 'transparent' },
-  successName: { flex: 1, fontSize: 14, fontWeight: '600' },
-  successShare: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });

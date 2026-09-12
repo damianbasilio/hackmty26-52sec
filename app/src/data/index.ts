@@ -2,9 +2,21 @@ import { ApiDataSource } from './ApiDataSource';
 import type { DataSource } from './DataSource';
 import { FixtureDataSource } from './FixtureDataSource';
 
-export type { DataSource, TransactionQuery } from './DataSource';
+export type {
+  CreateSplitInput,
+  DataSource,
+  Split,
+  SplitParticipant,
+  SplitRequest,
+  SplitStatus,
+  TransactionQuery,
+  Transfer,
+  TransferInput,
+  TransferStatus,
+} from './DataSource';
 export { ApiDataSource } from './ApiDataSource';
 export { FixtureDataSource } from './FixtureDataSource';
+export { sharesFor } from './shares';
 
 /** `fixtures` (default) or `api`. The only switch between mock and real data. */
 const mode = process.env.EXPO_PUBLIC_DATA_SOURCE ?? 'fixtures';
