@@ -19,10 +19,12 @@ def _require_nessie() -> None:
 
 
 @router.post("/nessie")
-def sync_nessie() -> dict[str, int]:
+def sync_nessie() -> dict:
     """Pull every customer/account/transaction Nessie has for this API key into Supabase.
 
-    Idempotent — safe to call again to pick up new Nessie activity.
+    Idempotent — safe to call again to pick up new Nessie activity. Quarantined
+    customers come back under `excluded`; ones that look poisoned but aren't
+    quarantined yet come back under `suspicious` with reasons. Neither is written.
     """
     _require_nessie()
     return sync_all()

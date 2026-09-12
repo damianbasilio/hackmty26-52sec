@@ -17,12 +17,18 @@ import scoresJson from '@contracts/fixtures/cashflow_scores.json';
 import subscriptionsJson from '@contracts/fixtures/subscriptions.json';
 
 import type {
+  CreateSplitInput,
   DataSource,
+  Split,
+  SplitParticipant,
+  SplitRequest,
   TransactionQuery,
   Transfer,
   TransferDraft,
   TransferRecipient,
 } from './DataSource';
+import { splitShareTransferId } from './DataSource';
+import { sharesFor } from './shares';
 
 const customers = customersJson as Customer[];
 const accounts = accountsJson as Account[];
@@ -36,6 +42,73 @@ const rules = rulesJson as SavingsRule[];
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
 const activated = new Set<string>();
 const sentTransfers: Transfer[] = [];
+
+const CODE_TTL_MS = 15 * 60 * 1000;
+
+const splitRequests = new Map<string, SplitRequest>();
+const splitParticipants = new Map<string, SplitParticipant[]>();
+const transfers: Transfer[] = [];
+const splitListeners = new Map<string, Set<(split: Split) => void>>();
+
+let sequence = 0;
+function nextId(prefix: string): string {
+  sequence += 1;
+  return `${prefix}_demo_${String(sequence).padStart(4, '0')}`;
+}
+
+/** Cuatro dígitos sin chocar con otra división abierta: igual que el índice parcial. */
+function freeCode(): string {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = String(Math.floor(Math.random() * 9000) + 1000);
+    const taken = [...splitRequests.values()].some(
+      (request) => request.code === candidate && request.status === 'open',
+    );
+    if (!taken) return candidate;
+  }
+  throw new Error('No pudimos generar un código libre para la división.');
+}
+
+/** Espeja rebalance_split(): partes iguales y el sobrante a quien llegó primero. */
+function rebalance(splitId: string): void {
+  const request = splitRequests.get(splitId);
+  const people = splitParticipants.get(splitId);
+  if (!request || !people || people.length === 0) return;
+  const amounts = sharesFor(request.total_cents, people.length);
+  people.forEach((person, index) => {
+    person.share_cents = amounts[index];
+  });
+}
+
+function snapshot(splitId: string): Split {
+  const request = splitRequests.get(splitId);
+  if (!request) throw new Error(`La división ${splitId} ya no existe.`);
+  return {
+    request: { ...request },
+    participants: (splitParticipants.get(splitId) ?? []).map((person) => ({ ...person })),
+  };
+}
+
+function emit(splitId: string): void {
+  const listeners = splitListeners.get(splitId);
+  if (!listeners) return;
+  const current = snapshot(splitId);
+  listeners.forEach((listener) => listener(current));
+}
+
+function newParticipant(splitId: string, displayName: string): SplitParticipant {
+  return {
+    id: nextId('spp'),
+    split_request_id: splitId,
+    customer_id: null,
+    display_name: displayName,
+    share_cents: 0,
+    is_creator: false,
+    paid: false,
+    paid_at: null,
+    transfer_id: null,
+    joined_at: new Date().toISOString(),
+  };
+}
 
 export class FixtureDataSource implements DataSource {
   async getCustomer(): Promise<Customer> {
@@ -120,8 +193,10 @@ export class FixtureDataSource implements DataSource {
   }
 
   async createTransfer(draft: TransferDraft): Promise<Transfer> {
+    // Misma llave, misma transferencia: un reintento no cobra de nuevo.
     const already = sentTransfers.find((transfer) => transfer.id === draft.id);
     if (already) return already;
+    const now = new Date().toISOString();
     const transfer: Transfer = {
       id: draft.id,
       account_id: draft.accountId,
@@ -135,9 +210,114 @@ export class FixtureDataSource implements DataSource {
       // imitan ese resultado para que la pantalla se vea igual sin backend.
       status: 'completed',
       failure_reason: null,
-      created_at: new Date().toISOString(),
+      created_at: now,
+      completed_at: now,
     };
     sentTransfers.unshift(transfer);
     return transfer;
+  }
+
+  async createSplit({ accountId, totalCents, title }: CreateSplitInput): Promise<Split> {
+    if (totalCents <= 0) throw new Error('El total de la división tiene que ser mayor a cero.');
+    const owner = customers[0];
+    const now = new Date();
+    const request: SplitRequest = {
+      id: nextId('spl'),
+      account_id: accountId,
+      created_by: owner.id,
+      title: title ?? '',
+      total_cents: totalCents,
+      code: freeCode(),
+      code_expires_at: new Date(now.getTime() + CODE_TTL_MS).toISOString(),
+      status: 'open',
+      created_at: now.toISOString(),
+      settled_at: null,
+    };
+    splitRequests.set(request.id, request);
+    splitParticipants.set(request.id, [{
+      ...newParticipant(request.id, `${owner.first_name} ${owner.last_name}`.trim()),
+      customer_id: owner.id,
+      share_cents: totalCents,
+      is_creator: true,
+    }]);
+    return snapshot(request.id);
+  }
+
+  async getSplit(splitId: string): Promise<Split> {
+    return snapshot(splitId);
+  }
+
+  async joinSplitByCode(code: string, displayName: string): Promise<Split> {
+    const request = [...splitRequests.values()].find(
+      (candidate) => candidate.code === code && candidate.status === 'open',
+    );
+    if (!request) throw new Error(`El código ${code} no corresponde a ninguna división activa.`);
+    if (new Date(request.code_expires_at).getTime() <= Date.now()) {
+      throw new Error('El código de la división ya expiró. Pídele al anfitrión uno nuevo.');
+    }
+    const people = splitParticipants.get(request.id) ?? [];
+    if (!people.some((person) => person.display_name === displayName)) {
+      people.push(newParticipant(request.id, displayName));
+      splitParticipants.set(request.id, people);
+      rebalance(request.id);
+    }
+    emit(request.id);
+    return snapshot(request.id);
+  }
+
+  async addSplitGuest(splitId: string, displayName: string): Promise<Split> {
+    const people = splitParticipants.get(splitId);
+    if (!people) throw new Error(`La división ${splitId} ya no existe.`);
+    people.push(newParticipant(splitId, displayName));
+    rebalance(splitId);
+    emit(splitId);
+    return snapshot(splitId);
+  }
+
+  async paySplitShare(splitId: string, participantId: string): Promise<Split> {
+    const request = splitRequests.get(splitId);
+    const people = splitParticipants.get(splitId);
+    if (!request || !people) throw new Error(`La división ${splitId} ya no existe.`);
+    const person = people.find((candidate) => candidate.id === participantId);
+    if (!person) throw new Error('No encontramos tu parte en esta división.');
+    if (!person.paid) {
+      const transfer = await this.createTransfer({
+        id: splitShareTransferId(participantId),
+        accountId: request.account_id,
+        recipient: {
+          id: `split_${request.id}`,
+          name: request.title || 'División de gasto',
+          bank: null,
+          last_four: null,
+          account_id: null,
+        },
+        amountCents: person.share_cents,
+        concept: `Mi parte de la división ${request.code}`,
+      });
+      person.paid_at = transfer.created_at;
+      person.paid = true;
+      person.transfer_id = transfer.id;
+      if (people.every((candidate) => candidate.paid)) {
+        request.status = 'settled';
+        request.settled_at = transfer.created_at;
+      }
+    }
+    emit(splitId);
+    return snapshot(splitId);
+  }
+
+  subscribeToSplit(splitId: string, onChange: (split: Split) => void): () => void {
+    const listeners = splitListeners.get(splitId) ?? new Set<(split: Split) => void>();
+    listeners.add(onChange);
+    splitListeners.set(splitId, listeners);
+    return () => {
+      listeners.delete(onChange);
+      if (listeners.size === 0) splitListeners.delete(splitId);
+    };
+  }
+
+  /** Los fixtures son un corte fijo: no nacen alertas nuevas mientras la app corre. */
+  subscribeToAlerts(): () => void {
+    return () => {};
   }
 }

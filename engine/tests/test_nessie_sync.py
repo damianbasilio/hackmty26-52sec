@@ -50,6 +50,7 @@ def _patch_nessie(monkeypatch):
 
 
 def _patch_repository(monkeypatch, written):
+    monkeypatch.setattr(repository, "fetch_excluded_nessie_customers", lambda: {})
     monkeypatch.setattr(
         repository, "upsert_customer", lambda row: written.setdefault("customer", row) or row
     )
@@ -78,7 +79,7 @@ def test_sync_all_reports_counts(monkeypatch):
 
     result = nessie_sync.sync_all()
 
-    assert result == {"customers": 1, "accounts": 1, "transactions": 3}
+    assert result == {"customers": 1, "accounts": 1, "transactions": 3, "excluded": [], "suspicious": []}
 
 
 def test_amounts_convert_to_cents_exactly_once(monkeypatch):

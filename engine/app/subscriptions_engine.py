@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .enrichment import format_mxn, normalize_merchant, spanish_month_name
 from .models import Merchant, Transaction
@@ -207,6 +207,134 @@ def detect_subscriptions(
 
     subscriptions.sort(key=lambda s: s["next_charge_on"])
     return subscriptions
+
+
+def reconcile_with_bills(
+    account_id: str,
+    subscriptions: list[dict],
+    bills: list[dict],
+    merchants: dict[str, Merchant],
+    transactions: list[Transaction],
+    existing_ids: dict[tuple[str, str], str],
+    today: date,
+) -> list[dict]:
+    """A bill is the bank's own record of a recurring payment, so it outranks cadence.
+
+    `bills` come from bills.py already in cents. Every subscription comes back
+    labelled in its explanation: confirmed by a bill, or inferred from history.
+    A bill with no detected subscription becomes one on its own.
+    """
+    merchants_by_id = {m.id: m for m in merchants.values()}
+    bills_by_merchant: dict[str, dict] = {}
+    for bill in bills:
+        merchant = merchants.get(normalize_merchant(bill["payee"]).normalized_name)
+        if merchant is not None:
+            bills_by_merchant.setdefault(merchant.id, bill)
+
+    reconciled = []
+    for sub in subscriptions:
+        bill = bills_by_merchant.pop(sub["merchant_id"], None)
+        if bill is None:
+            reconciled.append(
+                {
+                    **sub,
+                    "explanation": "Inferida de tu historial: no hay un pago domiciliado que la "
+                    f"confirme. {sub['explanation']}",
+                }
+            )
+            continue
+        explanation = (
+            f"Confirmada: tu banco tiene un pago domiciliado a {bill['payee']} por "
+            f"{format_mxn(bill['amount_cents'])}. {sub['explanation']}"
+        )
+        if bill["amount_cents"] != sub["amount_cents"]:
+            explanation += (
+                f" Ojo: lo domiciliado ({format_mxn(bill['amount_cents'])}) no coincide con el "
+                f"último cobro ({format_mxn(sub['amount_cents'])})."
+            )
+        reconciled.append(
+            {
+                **sub,
+                "confidence": CONFIDENCE_CAP,
+                "next_charge_on": bill["next_payment_on"] or sub["next_charge_on"],
+                "explanation": explanation,
+            }
+        )
+
+    for merchant_id, bill in bills_by_merchant.items():
+        reconciled.append(
+            _subscription_from_bill(
+                account_id, merchants_by_id[merchant_id], bill, transactions, existing_ids, today
+            )
+        )
+
+    reconciled.sort(key=lambda s: s["next_charge_on"])
+    return reconciled
+
+
+def _subscription_from_bill(
+    account_id: str,
+    merchant: Merchant,
+    bill: dict,
+    transactions: list[Transaction],
+    existing_ids: dict[tuple[str, str], str],
+    today: date,
+) -> dict:
+    charges = sorted(
+        (
+            t
+            for t in transactions
+            if t.type == "purchase"
+            and t.status == "completed"
+            and normalize_merchant(t.raw_description).normalized_name == merchant.normalized_name
+        ),
+        key=lambda t: t.occurred_at,
+    )
+    fallback_day = bill["last_paid_on"] or bill["first_on"] or today.isoformat()
+    first_charge_at = charges[0].occurred_at if charges else _day_start(bill["first_on"] or fallback_day)
+    last_charge_at = charges[-1].occurred_at if charges else _day_start(fallback_day)
+    next_charge_on = bill["next_payment_on"] or _next_monthly_day(bill["recurring_day"], today)
+    amount_cents = bill["amount_cents"]
+    # Nessie bills recur on a day of the month, so their cadence is always monthly.
+    return {
+        "id": existing_ids.get((merchant.id, "monthly"), f"sub_{account_id}_{merchant.id}_monthly"),
+        "account_id": account_id,
+        "merchant_id": merchant.id,
+        "merchant_display_name": merchant.display_name,
+        "category": merchant.category,
+        "cadence": "monthly",
+        "amount_cents": amount_cents,
+        "previous_amount_cents": None,
+        "price_delta_cents": None,
+        "price_increase_detected": False,
+        "first_charge_at": _iso(first_charge_at),
+        "last_charge_at": _iso(last_charge_at),
+        "next_charge_on": next_charge_on,
+        "occurrence_count": len(charges),
+        "confidence": CONFIDENCE_CAP,
+        "status": "active",
+        "annual_cost_cents": amount_cents * _OCCURRENCES_PER_YEAR["monthly"],
+        "explanation": (
+            f"Confirmada: pago domiciliado a {bill['payee']} por {format_mxn(amount_cents)} cada mes, "
+            f"el día {date.fromisoformat(next_charge_on).day}. Todavía no la vemos como cargo "
+            "constante en tu historial."
+        ),
+    }
+
+
+def _next_monthly_day(day_of_month: int | None, today: date) -> str:
+    if not day_of_month:
+        return today.isoformat()
+    candidate = today.replace(day=min(day_of_month, calendar.monthrange(today.year, today.month)[1]))
+    if candidate < today:
+        next_month = _add_months(datetime(today.year, today.month, 1), 1)
+        last_day = calendar.monthrange(next_month.year, next_month.month)[1]
+        candidate = date(next_month.year, next_month.month, min(day_of_month, last_day))
+    return candidate.isoformat()
+
+
+def _day_start(day: str) -> datetime:
+    return datetime.fromisoformat(f"{day}T00:00:00+00:00")
 
 
 def _iso(dt: datetime) -> str:

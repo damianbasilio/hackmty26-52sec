@@ -75,6 +75,20 @@ export const supabase: SupabaseClient | null = supabaseConfigured
     })
   : null;
 
+/**
+ * El mismo cliente que guarda la sesión, no uno aparte: con un segundo cliente
+ * sin sesión toda policy resuelve `auth.uid()` a null y las lecturas dan 0 filas.
+ */
+export function getSupabase(): SupabaseClient {
+  if (!supabase) {
+    throw new Error(
+      'Faltan EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY. ' +
+        'Con EXPO_PUBLIC_DATA_SOURCE=fixtures no hacen falta.',
+    );
+  }
+  return supabase;
+}
+
 /** Traduce fallas de red y de Supabase a algo que el usuario pueda leer. */
 export function describeSupabaseError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error ?? '');

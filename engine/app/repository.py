@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from .config import get_settings
@@ -23,8 +24,19 @@ class SupabaseNotConfigured(RuntimeError):
         )
 
 
+class SchemaOutdated(SupabaseNotConfigured):
+    """The live database lacks something db/schema.sql already creates. Served as 503."""
+
+    def __init__(self, missing: str) -> None:
+        RuntimeError.__init__(self, f"Falta {missing} en la base: aplica db/schema.sql y reintenta.")
+
+
 class CustomerResolutionError(RuntimeError):
     """Raised when fetch_current_customer can't pick a customer without guessing."""
+
+
+_MISSING_TABLE = "PGRST205"
+_MISSING_COLUMN = "42703"
 
 
 @lru_cache
@@ -57,6 +69,10 @@ def fetch_current_customer() -> dict | None:
        one arbitrarily.
     3. With no Nessie customer at all, fall back to the oldest row — the
        fixture customer from db/seed.js.
+
+    A quarantined customer (excluded_at set, see excluded_nessie_customers in
+    db/schema.sql) is never served: steps 2 and 3 skip it, so it can't make the
+    choice ambiguous either, and step 1 raises instead of returning it.
     """
     active_id = get_settings().active_customer_id
     if active_id:
@@ -65,16 +81,15 @@ def fetch_current_customer() -> dict | None:
             raise CustomerResolutionError(
                 f"ACTIVE_CUSTOMER_ID={active_id!r} no corresponde a ningún cliente en customers."
             )
-        return res.data[0]
+        customer = res.data[0]
+        if customer.get("excluded_at"):
+            raise CustomerResolutionError(
+                f"ACTIVE_CUSTOMER_ID={active_id!r} está en cuarentena y no se sirve: "
+                f"{customer.get('exclusion_reason')}"
+            )
+        return customer
 
-    synced = (
-        get_client()
-        .table("customers")
-        .select("*")
-        .like("id", f"{_NESSIE_SYNCED_ID_PREFIX}%")
-        .order("created_at")
-        .execute()
-    ).data
+    synced = _unquarantined_customers(like_prefix=_NESSIE_SYNCED_ID_PREFIX)
     if len(synced) > 1:
         raise CustomerResolutionError(
             "Hay más de un cliente sincronizado de Nessie; define ACTIVE_CUSTOMER_ID para "
@@ -83,8 +98,36 @@ def fetch_current_customer() -> dict | None:
     if synced:
         return synced[0]
 
-    res = get_client().table("customers").select("*").order("created_at").limit(1).execute()
-    return res.data[0] if res.data else None
+    oldest = _unquarantined_customers(limit=1)
+    return oldest[0] if oldest else None
+
+
+def _unquarantined_customers(like_prefix: str | None = None, limit: int | None = None) -> list[dict]:
+    query = get_client().table("customers").select("*").is_("excluded_at", "null")
+    if like_prefix:
+        query = query.like("id", f"{like_prefix}%")
+    query = query.order("created_at")
+    if limit is not None:
+        query = query.limit(limit)
+    try:
+        return query.execute().data
+    except APIError as exc:
+        if exc.code == _MISSING_COLUMN:
+            raise SchemaOutdated("la columna customers.excluded_at") from exc
+        raise
+
+
+def fetch_excluded_nessie_customers() -> dict[str, str]:
+    """Quarantined Nessie customer id -> reason. The list is lane A's (db/schema.sql)."""
+    try:
+        rows = (
+            get_client().table("excluded_nessie_customers").select("nessie_customer_id,reason").execute()
+        ).data
+    except APIError as exc:
+        if exc.code == _MISSING_TABLE:
+            raise SchemaOutdated("la tabla excluded_nessie_customers") from exc
+        raise
+    return {row["nessie_customer_id"]: row["reason"] for row in rows}
 
 
 def fetch_accounts(customer_id: str) -> list[dict]:
@@ -147,7 +190,7 @@ def fetch_account(account_id: str) -> dict | None:
     res = (
         get_client()
         .table("accounts")
-        .select("id,customer_id,balance_cents,created_at")
+        .select("*")
         .eq("id", account_id)
         .limit(1)
         .execute()
@@ -315,7 +358,7 @@ def upsert_anomaly_alerts(rows: list[dict]) -> list[dict]:
     return res.data
 
 
-def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> dict:
+def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> dict | None:
     res = (
         get_client()
         .table("anomaly_alerts")
@@ -323,7 +366,8 @@ def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> d
         .eq("id", alert_id)
         .execute()
     )
-    return res.data[0]
+    # an update that matched nothing returns no rows, not an error
+    return res.data[0] if res.data else None
 
 
 def fetch_latest_cashflow_score(account_id: str) -> dict | None:
@@ -368,7 +412,7 @@ def upsert_savings_rules(rows: list[dict]) -> list[dict]:
     return res.data
 
 
-def activate_savings_rule(rule_id: str, destination_account_id: str, activated_at: str) -> dict:
+def activate_savings_rule(rule_id: str, destination_account_id: str, activated_at: str) -> dict | None:
     res = (
         get_client()
         .table("savings_rules")
@@ -382,4 +426,160 @@ def activate_savings_rule(rule_id: str, destination_account_id: str, activated_a
         .eq("id", rule_id)
         .execute()
     )
+    return res.data[0] if res.data else None
+
+
+def fetch_customer(customer_id: str) -> dict | None:
+    res = get_client().table("customers").select("*").eq("id", customer_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+# ---------------------------------------------------------------------------
+# Transfers. The app may only insert pending rows (db/schema.sql RLS); status,
+# nessie_transfer_id and transaction_id are written here, with the service role.
+# ---------------------------------------------------------------------------
+
+
+class DuplicateRow(RuntimeError):
+    """An insert hit a primary key that already exists."""
+
+
+_UNIQUE_VIOLATION = "23505"
+
+
+def fetch_transfer(transfer_id: str) -> dict | None:
+    res = get_client().table("transfers").select("*").eq("id", transfer_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def fetch_transfers(account_id: str) -> list[dict]:
+    res = (
+        get_client()
+        .table("transfers")
+        .select("*")
+        .eq("account_id", account_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data
+
+
+def _insert(table: str, row: dict) -> dict:
+    try:
+        res = get_client().table(table).insert(row).execute()
+    except APIError as exc:
+        if exc.code == _UNIQUE_VIOLATION:
+            raise DuplicateRow(row["id"]) from exc
+        raise
+    return res.data[0]
+
+
+def insert_transfer(row: dict) -> dict:
+    return _insert("transfers", row)
+
+
+def update_transfer(transfer_id: str, fields: dict) -> dict:
+    res = get_client().table("transfers").update(fields).eq("id", transfer_id).execute()
+    return res.data[0]
+
+
+def sum_outgoing_transfer_holds_cents(account_id: str, exclude_transfer_id: str | None = None) -> int:
+    # pending counts too: money on its way out is not spendable twice
+    rows = (
+        get_client()
+        .table("transfers")
+        .select("id,amount_cents")
+        .eq("account_id", account_id)
+        .in_("status", ["pending", "completed"])
+        .execute()
+    ).data
+    return sum(row["amount_cents"] for row in rows if row["id"] != exclude_transfer_id)
+
+
+def sum_incoming_transfer_deposits_cents(account_id: str, ref_marker: str) -> int:
+    rows = (
+        get_client()
+        .table("transactions")
+        .select("amount_cents")
+        .eq("account_id", account_id)
+        .eq("status", "completed")
+        .gt("amount_cents", 0)
+        .like("raw_description", f"%{ref_marker}%")
+        .execute()
+    ).data
+    return sum(row["amount_cents"] for row in rows)
+
+
+def find_transaction_by_ref(account_id: str, ref: str) -> dict | None:
+    rows = (
+        get_client()
+        .table("transactions")
+        .select("id,amount_cents,raw_description")
+        .eq("account_id", account_id)
+        .like("raw_description", f"%{ref}")
+        .execute()
+    ).data
+    # LIKE treats "_" in ids as a wildcard; endswith is the exact check
+    return next((row for row in rows if row["raw_description"].endswith(ref)), None)
+
+
+# ---------------------------------------------------------------------------
+# Splits. share_cents and status are written here, never by join_split() or
+# rebalance_split(): both resolve the caller with auth.uid(), null for the
+# service role. `paid` is generated from paid_at and is never written.
+# ---------------------------------------------------------------------------
+
+
+def fetch_split(split_id: str) -> dict | None:
+    res = get_client().table("split_requests").select("*").eq("id", split_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def fetch_open_split_by_code(code: str) -> dict | None:
+    res = (
+        get_client()
+        .table("split_requests")
+        .select("*")
+        .eq("code", code)
+        .eq("status", "open")
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def insert_split(row: dict) -> dict:
+    # DuplicateRow here is either the id or another open split's code
+    return _insert("split_requests", row)
+
+
+def update_split(split_id: str, fields: dict) -> dict:
+    res = get_client().table("split_requests").update(fields).eq("id", split_id).execute()
+    return res.data[0]
+
+
+def fetch_split_participants(split_id: str) -> list[dict]:
+    res = (
+        get_client()
+        .table("split_participants")
+        .select("*")
+        .eq("split_request_id", split_id)
+        .order("joined_at")
+        .order("id")
+        .execute()
+    )
+    return res.data
+
+
+def fetch_split_participant(participant_id: str) -> dict | None:
+    res = get_client().table("split_participants").select("*").eq("id", participant_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def insert_split_participant(row: dict) -> dict:
+    return _insert("split_participants", row)
+
+
+def update_split_participant(participant_id: str, fields: dict) -> dict:
+    res = get_client().table("split_participants").update(fields).eq("id", participant_id).execute()
     return res.data[0]

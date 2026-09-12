@@ -4,19 +4,6 @@ import { useAuth } from '@/components/AuthProvider';
 import { dataSource } from '@/src/data';
 import type { Transfer, TransferDraft, TransferRecipient } from '@/src/data/DataSource';
 
-export type SplitParticipant = {
-  id: string;
-  name: string;
-  initials: string;
-  color: string;
-};
-
-export const NEARBY_PARTICIPANTS: SplitParticipant[] = [
-  { id: 'recipient_mariana', name: 'Mariana Ríos', initials: 'MR', color: '#E3F0FA' },
-  { id: 'recipient_diego', name: 'Diego Garza', initials: 'DG', color: '#FCE7E5' },
-  { id: 'recipient_luis', name: 'Luis Mendoza', initials: 'LM', color: '#E7F4EB' },
-];
-
 type BankingContextValue = {
   /** Checking account the transfer screens operate on. */
   accountId: string | null;
@@ -32,14 +19,10 @@ type BankingContextValue = {
   error: string | null;
   reload: () => void;
   sendTransfer: (draft: TransferDraft) => Promise<Transfer>;
-  createSplitRequest: (totalCents: number, participants: SplitParticipant[]) => Promise<string>;
 };
 
 const BankingContext = createContext<BankingContextValue | null>(null);
 
-function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-}
 
 export function BankingProvider({ children }: PropsWithChildren) {
   const { signedIn } = useAuth();
@@ -108,11 +91,6 @@ export function BankingProvider({ children }: PropsWithChildren) {
     return transfer;
   }, []);
 
-  const createSplitRequest = useCallback(async () => {
-    await wait(620);
-    return `split_${Date.now()}`;
-  }, []);
-
   const value = useMemo<BankingContextValue>(() => ({
     accountId,
     transfers,
@@ -124,8 +102,7 @@ export function BankingProvider({ children }: PropsWithChildren) {
     error,
     reload,
     sendTransfer,
-    createSplitRequest,
-  }), [accountId, createSplitRequest, error, loading, recipients, reload, sendTransfer, transfers]);
+  }), [accountId, error, loading, recipients, reload, sendTransfer, transfers]);
 
   return <BankingContext.Provider value={value}>{children}</BankingContext.Provider>;
 }
