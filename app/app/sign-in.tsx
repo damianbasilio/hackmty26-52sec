@@ -22,6 +22,7 @@ export default function SignInScreen() {
   const {
     signedIn,
     sessionLocked,
+    needsPinSetup,
     lockUntil,
     biometricsAvailable,
     biometricSignInEnabled,
@@ -30,6 +31,7 @@ export default function SignInScreen() {
     demoPassword,
     demoPin,
     signIn,
+    setDevicePin,
     unlock,
     authenticateWithBiometrics,
     signOut,
@@ -37,6 +39,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -52,8 +55,10 @@ export default function SignInScreen() {
     () => lockUntil ? Math.max(0, Math.ceil((lockUntil - clock) / 1000)) : 0,
     [clock, lockUntil],
   );
-  const isSessionUnlock = signedIn && sessionLocked;
+  const isPinSetup = signedIn && needsPinSetup;
+  const isSessionUnlock = signedIn && sessionLocked && !needsPinSetup;
   const blocked = lockedSeconds > 0;
+  const hasDemoCredentials = demoEmail.length > 0 && demoPassword.length > 0;
 
   async function submitCredentials() {
     if (!email.trim() || !password) {
@@ -64,6 +69,27 @@ export default function SignInScreen() {
     setMessage(null);
     const result = await signIn(email, password);
     if (!result.ok) setMessage(result.message);
+    else setPassword('');
+    setSubmitting(false);
+  }
+
+  async function submitPinSetup() {
+    if (pin.length !== 6) {
+      setMessage('Tu PIN debe tener 6 dígitos.');
+      return;
+    }
+    if (pin !== pinConfirm) {
+      setMessage('Los dos PIN no coinciden.');
+      return;
+    }
+    setSubmitting(true);
+    setMessage(null);
+    const result = await setDevicePin(pin);
+    if (!result.ok) setMessage(result.message);
+    else {
+      setPin('');
+      setPinConfirm('');
+    }
     setSubmitting(false);
   }
 
@@ -76,6 +102,7 @@ export default function SignInScreen() {
     setMessage(null);
     const result = await unlock(pin);
     if (!result.ok) setMessage(result.message);
+    else setPin('');
     setSubmitting(false);
   }
 
@@ -118,12 +145,18 @@ export default function SignInScreen() {
               </View>
               <View style={styles.heroCopy}>
                 <Text style={styles.heroTitle}>
-                  {isSessionUnlock ? 'Tu sesión está protegida.' : 'Tu dinero, bajo control.'}
+                  {isPinSetup
+                    ? 'Crea tu PIN.'
+                    : isSessionUnlock
+                      ? 'Tu sesión está protegida.'
+                      : 'Tu dinero, bajo control.'}
                 </Text>
                 <Text style={styles.heroBody}>
-                  {isSessionUnlock
-                    ? 'Confirma tu identidad para continuar donde te quedaste.'
-                    : 'Alertas claras, transferencias seguras y decisiones financieras simples.'}
+                  {isPinSetup
+                    ? 'Seis dígitos que se quedan en este teléfono. Los usarás para desbloquear la app y autorizar transferencias.'
+                    : isSessionUnlock
+                      ? 'Confirma tu identidad para continuar donde te quedaste.'
+                      : 'Alertas claras, transferencias seguras y decisiones financieras simples.'}
                 </Text>
               </View>
               <View style={styles.securityLine}>
@@ -137,14 +170,59 @@ export default function SignInScreen() {
             <Card style={styles.formCard}>
               <View style={styles.formHeading}>
                 <Text style={styles.formTitle}>
-                  {isSessionUnlock ? 'Bienvenida de nuevo' : 'Iniciar sesión'}
+                  {isPinSetup ? 'Tu PIN de seguridad' : isSessionUnlock ? 'Bienvenida de nuevo' : 'Iniciar sesión'}
                 </Text>
                 <Text style={[styles.formSubtitle, { color: palette.muted }]}>
-                  {isSessionUnlock ? 'Ingresa tu PIN para desbloquear.' : 'Accede con tus datos de banca.'}
+                  {isPinSetup
+                    ? 'Elige seis dígitos y confírmalos.'
+                    : isSessionUnlock
+                      ? 'Ingresa tu PIN para desbloquear.'
+                      : 'Accede con tus datos de banca.'}
                 </Text>
               </View>
 
-              {isSessionUnlock ? (
+              {isPinSetup ? (
+                <>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Nuevo PIN</Text>
+                    <TextInput
+                      key="new-pin"
+                      accessibilityLabel="Nuevo PIN"
+                      autoFocus
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      onChangeText={(value) => setPin(value.replace(/\D/g, ''))}
+                      placeholder="••••••"
+                      placeholderTextColor={palette.muted}
+                      secureTextEntry
+                      style={[
+                        styles.pinInput,
+                        { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink },
+                      ]}
+                      value={pin}
+                    />
+                  </View>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Confirma tu PIN</Text>
+                    <TextInput
+                      key="confirm-pin"
+                      accessibilityLabel="Confirma tu PIN"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      onChangeText={(value) => setPinConfirm(value.replace(/\D/g, ''))}
+                      onSubmitEditing={submitPinSetup}
+                      placeholder="••••••"
+                      placeholderTextColor={palette.muted}
+                      secureTextEntry
+                      style={[
+                        styles.pinInput,
+                        { backgroundColor: palette.surfaceAlt, borderColor: palette.border, color: palette.ink },
+                      ]}
+                      value={pinConfirm}
+                    />
+                  </View>
+                </>
+              ) : isSessionUnlock ? (
                 <View style={styles.fieldGroup}>
                   <Text style={styles.fieldLabel}>PIN de seguridad</Text>
                   <TextInput
@@ -231,15 +309,17 @@ export default function SignInScreen() {
               <MotionPressable
                 accessibilityRole="button"
                 disabled={submitting || blocked}
-                onPress={isSessionUnlock ? submitPin : submitCredentials}
+                onPress={isPinSetup ? submitPinSetup : isSessionUnlock ? submitPin : submitCredentials}
                 style={[
                   styles.primaryButton,
                   { backgroundColor: palette.accentDeep, opacity: submitting || blocked ? 0.55 : 1 },
                 ]}>
-                <Text style={styles.primaryLabel}>{submitting ? 'Verificando…' : 'Continuar'}</Text>
+                <Text style={styles.primaryLabel}>
+                  {submitting ? 'Verificando…' : isPinSetup ? 'Guardar mi PIN' : 'Continuar'}
+                </Text>
               </MotionPressable>
 
-              {biometricsAvailable && (isSessionUnlock || biometricSignInEnabled) ? (
+              {biometricsAvailable && isSessionUnlock && biometricSignInEnabled ? (
                 <MotionPressable
                   accessibilityLabel={`Entrar con ${biometricLabel}`}
                   accessibilityRole="button"
@@ -255,26 +335,38 @@ export default function SignInScreen() {
                 </MotionPressable>
               ) : null}
 
-              <MotionPressable
-                accessibilityRole="button"
-                onPress={() => {
-                  if (isSessionUnlock) {
-                    setPin(demoPin);
-                  } else {
+              {!isPinSetup && !isSessionUnlock && hasDemoCredentials ? (
+                <MotionPressable
+                  accessibilityRole="button"
+                  onPress={() => {
                     setEmail(demoEmail);
                     setPassword(demoPassword);
-                  }
-                  setMessage(null);
-                }}
-                style={[styles.demoButton, { backgroundColor: palette.accentSoft }]}>
-                <Text style={[styles.demoLabel, { color: palette.accent }]}>Usar acceso de demostración</Text>
-              </MotionPressable>
+                    setMessage(null);
+                  }}
+                  style={[styles.demoButton, { backgroundColor: palette.accentSoft }]}>
+                  <Text style={[styles.demoLabel, { color: palette.accent }]}>Usar acceso de demostración</Text>
+                </MotionPressable>
+              ) : null}
 
-              {isSessionUnlock ? (
+              {isPinSetup && demoPin.length === 6 ? (
+                <MotionPressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPin(demoPin);
+                    setPinConfirm(demoPin);
+                    setMessage(null);
+                  }}
+                  style={[styles.demoButton, { backgroundColor: palette.accentSoft }]}>
+                  <Text style={[styles.demoLabel, { color: palette.accent }]}>Usar PIN de demostración</Text>
+                </MotionPressable>
+              ) : null}
+
+              {isSessionUnlock || isPinSetup ? (
                 <MotionPressable
                   accessibilityRole="button"
                   onPress={() => {
                     setPin('');
+                    setPinConfirm('');
                     setPassword('');
                     signOut();
                   }}
