@@ -56,6 +56,12 @@ do $$ begin
   if to_regtype('public.savings_rule_status') is null then
     create type public.savings_rule_status as enum ('suggested', 'active', 'paused', 'completed');
   end if;
+  if to_regtype('public.transfer_status') is null then
+    create type public.transfer_status as enum ('pending', 'completed', 'failed', 'cancelled');
+  end if;
+  if to_regtype('public.split_status') is null then
+    create type public.split_status as enum ('open', 'settled', 'cancelled', 'expired');
+  end if;
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -254,6 +260,86 @@ create index if not exists savings_rules_account_status_idx
   on savings_rules (account_id, status);
 
 -- ---------------------------------------------------------------------------
+-- What the user does in the app. These used to live in React state and died
+-- with the process; they are rows now.
+-- ---------------------------------------------------------------------------
+
+create table if not exists transfers (
+  id text primary key,
+  account_id text not null references accounts (id) on delete cascade,
+  -- Only set when the destination is an account we already know about; a
+  -- contact at another bank leaves it null and fills the payee_* columns.
+  payee_account_id text references accounts (id) on delete set null,
+  payee_name text not null,
+  payee_bank text,
+  payee_last_four text check (payee_last_four ~ '^[0-9]{4}$'),
+  -- Always positive. The direction is "out of account_id"; the signed copy of
+  -- the amount is the transactions row this transfer produces.
+  amount_cents bigint not null check (amount_cents > 0),
+  currency text not null default 'MXN' check (currency = 'MXN'),
+  concept text not null default '',
+  status transfer_status not null default 'pending',
+  -- Filled by the engine once the money lands in the ledger.
+  transaction_id text references transactions (id) on delete set null,
+  nessie_transfer_id text unique,
+  failure_reason text,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+-- Transfer history on Inicio: one account, newest first.
+create index if not exists transfers_account_created_idx
+  on transfers (account_id, created_at desc);
+
+create table if not exists split_requests (
+  id text primary key,
+  account_id text not null references accounts (id) on delete cascade,
+  created_by text not null references customers (id) on delete cascade,
+  title text not null default '',
+  total_cents bigint not null check (total_cents > 0),
+  currency text not null default 'MXN' check (currency = 'MXN'),
+  -- Short code typed by whoever joins; dead once it expires.
+  code text not null,
+  code_expires_at timestamptz not null,
+  status split_status not null default 'open',
+  created_at timestamptz not null default now(),
+  settled_at timestamptz
+);
+
+-- Two live splits can't share a code or join_split() couldn't tell them apart.
+-- Partial on purpose: a settled split keeps its code as history, and the code
+-- becomes reusable. An insert that collides fails; the app retries with another.
+create unique index if not exists split_requests_live_code_idx
+  on split_requests (code) where status = 'open';
+
+create index if not exists split_requests_account_created_idx
+  on split_requests (account_id, created_at desc);
+
+create table if not exists split_participants (
+  id text primary key,
+  split_request_id text not null references split_requests (id) on delete cascade,
+  -- null while the participant is a guest who joined by code and banks elsewhere.
+  customer_id text references customers (id) on delete set null,
+  display_name text not null,
+  share_cents bigint not null default 0 check (share_cents >= 0),
+  is_creator boolean not null default false,
+  -- paid is derived so the flag and the timestamp can't drift apart: to mark
+  -- somebody as paid you write paid_at, never paid.
+  paid_at timestamptz,
+  paid boolean generated always as (paid_at is not null) stored,
+  transfer_id text references transfers (id) on delete set null,
+  joined_at timestamptz not null default now()
+);
+
+create index if not exists split_participants_request_idx
+  on split_participants (split_request_id, joined_at);
+
+-- One row per customer per split. Guests are exempt: unique treats nulls as
+-- distinct, which is exactly right for people we can't identify.
+create unique index if not exists split_participants_request_customer_idx
+  on split_participants (split_request_id, customer_id) where customer_id is not null;
+
+-- ---------------------------------------------------------------------------
 -- Read surface the app consumes. Matches EnrichedTransaction exactly.
 -- ---------------------------------------------------------------------------
 
@@ -299,6 +385,9 @@ alter table subscriptions enable row level security;
 alter table anomaly_alerts enable row level security;
 alter table cashflow_scores enable row level security;
 alter table savings_rules enable row level security;
+alter table transfers enable row level security;
+alter table split_requests enable row level security;
+alter table split_participants enable row level security;
 -- Shared catalog, no personal data: readable by anyone, writable by nobody. Without
 -- RLS the default grants let the publishable key INSERT/UPDATE/DELETE it, and that
 -- key ships inside the app bundle. The engine writes it with the service role.
@@ -314,6 +403,11 @@ language sql stable security definer set search_path = public as $$
     join customers c on c.id = a.customer_id
     where a.id = target_account_id and c.auth_user_id = auth.uid()
   );
+$$;
+
+create or replace function public.current_customer_id() returns text
+language sql stable security definer set search_path = public as $$
+  select c.id from customers c where c.auth_user_id = auth.uid() limit 1;
 $$;
 
 do $$
@@ -335,6 +429,149 @@ end $$;
 drop policy if exists own_savings_update on savings_rules;
 create policy own_savings_update on savings_rules
   for update using (public.owns_account(account_id)) with check (public.owns_account(account_id));
+
+-- ---------------------------------------------------------------------------
+-- Transfers and splits. A transfer is private to whoever sent it; a split is
+-- shared, so it needs a second rule: participants see it too, not just the
+-- creator.
+-- ---------------------------------------------------------------------------
+
+-- Creator or participant. Both halves are needed: the creator is not
+-- necessarily in split_participants, and a participant owns no account here.
+create or replace function public.can_see_split(target_split_id text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from split_requests s
+    where s.id = target_split_id and public.owns_account(s.account_id)
+  ) or exists (
+    select 1 from split_participants p
+    join customers c on c.id = p.customer_id
+    where p.split_request_id = target_split_id and c.auth_user_id = auth.uid()
+  );
+$$;
+
+drop policy if exists own_transfers on transfers;
+create policy own_transfers on transfers for select using (public.owns_account(account_id));
+
+-- Insert only. The engine flips status and fills nessie_transfer_id with the
+-- service role: if the client could write those it could claim a transfer
+-- completed that never left the bank.
+drop policy if exists own_transfers_insert on transfers;
+create policy own_transfers_insert on transfers for insert
+  with check (public.owns_account(account_id));
+
+drop policy if exists see_split_requests on split_requests;
+create policy see_split_requests on split_requests for select using (public.can_see_split(id));
+
+drop policy if exists own_split_requests_insert on split_requests;
+create policy own_split_requests_insert on split_requests for insert
+  with check (public.owns_account(account_id) and created_by = public.current_customer_id());
+
+drop policy if exists own_split_requests_update on split_requests;
+create policy own_split_requests_update on split_requests for update
+  using (public.owns_account(account_id)) with check (public.owns_account(account_id));
+
+drop policy if exists see_split_participants on split_participants;
+create policy see_split_participants on split_participants for select
+  using (public.can_see_split(split_request_id));
+
+-- The creator adds their own row and anyone they picked off the nearby list.
+-- Everybody else arrives through join_split().
+drop policy if exists creator_split_participants_insert on split_participants;
+create policy creator_split_participants_insert on split_participants for insert
+  with check (exists (
+    select 1 from split_requests s
+    where s.id = split_request_id and public.owns_account(s.account_id)
+  ));
+
+-- Marking yourself paid. The creator can too, for a guest who paid in cash.
+drop policy if exists pay_own_share on split_participants;
+create policy pay_own_share on split_participants for update
+  using (
+    customer_id = public.current_customer_id()
+    or exists (select 1 from split_requests s
+               where s.id = split_request_id and public.owns_account(s.account_id))
+  )
+  with check (
+    customer_id = public.current_customer_id()
+    or exists (select 1 from split_requests s
+               where s.id = split_request_id and public.owns_account(s.account_id))
+  );
+
+-- RLS gates rows, not columns, and the policy above has to let a participant
+-- update their own row. Without this they could also rewrite share_cents and
+-- pay one peso of a thousand-peso dinner.
+revoke update on split_participants from anon, authenticated;
+grant update (paid_at, transfer_id) on split_participants to authenticated;
+revoke update on split_requests from anon, authenticated;
+grant update (title, total_cents, status, settled_at, code_expires_at) on split_requests to authenticated;
+
+-- Evenly, remainder one cent at a time to whoever joined first. Same rule as
+-- sharesFor() in the app, so the two never disagree by a peso.
+create or replace function public.rebalance_split(target_split_id text) returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  total bigint;
+  headcount int;
+begin
+  if not public.can_see_split(target_split_id) then
+    raise exception 'No puedes ver la división %', target_split_id;
+  end if;
+
+  select s.total_cents into total from split_requests s where s.id = target_split_id;
+  select count(*) into headcount from split_participants p where p.split_request_id = target_split_id;
+  if headcount = 0 then
+    return;
+  end if;
+
+  update split_participants p
+  set share_cents = total / headcount
+      + case when ranked.position <= total % headcount then 1 else 0 end
+  from (
+    select id, row_number() over (order by joined_at, id) as position
+    from split_participants
+    where split_request_id = target_split_id
+  ) as ranked
+  where p.id = ranked.id;
+end $$;
+
+-- Joining is the one write RLS can't express: the person joining is not a
+-- participant yet, so no policy can see them, and the code they typed is not a
+-- column of the row being inserted. Definer function, code checked in here.
+create or replace function public.join_split(join_code text, joiner_name text)
+returns table (participant_id text, split_id text, total_cents bigint, share_cents bigint)
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  target split_requests%rowtype;
+  me text := public.current_customer_id();
+  existing text;
+  new_id text;
+begin
+  select * into target from split_requests s
+  where s.code = join_code and s.status = 'open' and s.code_expires_at > now();
+  if target.id is null then
+    raise exception 'El código % no corresponde a ninguna división activa.', join_code;
+  end if;
+
+  if me is not null then
+    select p.id into existing from split_participants p
+    where p.split_request_id = target.id and p.customer_id = me;
+  end if;
+
+  if existing is null then
+    new_id := 'spp_' || replace(gen_random_uuid()::text, '-', '');
+    insert into split_participants (id, split_request_id, customer_id, display_name)
+    values (new_id, target.id, me, joiner_name);
+  else
+    new_id := existing;
+  end if;
+
+  perform public.rebalance_split(target.id);
+
+  return query
+    select p.id, p.split_request_id, target.total_cents, p.share_cents
+    from split_participants p where p.id = new_id;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Auth linking. Every RLS policy above resolves through customers.auth_user_id,
