@@ -16,14 +16,13 @@ export function Badge({ label, color, background }: Props) {
 
 const styles = StyleSheet.create({
   badge: {
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
   label: {
     fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+    fontWeight: '600',
   },
 });

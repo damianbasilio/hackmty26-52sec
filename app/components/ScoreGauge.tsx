@@ -1,16 +1,15 @@
 import type { CashflowScore } from '@contracts/types';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { AccessibilityInfo, StyleSheet, View, type ViewStyle } from 'react-native';
+import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
-import { Badge } from '@/components/Badge';
 import { Text } from '@/components/Themed';
 import { usePalette, type Palette } from '@/components/palette';
-import { formatLongDay } from '@/src/format';
 
 const MIN_SCORE = 300;
 const MAX_SCORE = 850;
-const REVEAL_MS = 900;
+const REVEAL_MS = 720;
+const SEGMENTS = 120;
 
 const BAND_ES: Record<CashflowScore['band'], string> = {
   poor: 'Bajo',
@@ -23,60 +22,70 @@ const BAND_ES: Record<CashflowScore['band'], string> = {
 function bandColor(band: CashflowScore['band'], palette: Palette): string {
   if (band === 'poor') return palette.danger;
   if (band === 'fair') return palette.warning;
-  if (band === 'good') return palette.accent;
+  if (band === 'good') return palette.positive;
   return palette.positive;
 }
 
-const LIGHT_INK = '#ffffff';
-const DARK_INK = '#0f1216';
-
-function relativeLuminance(hex: string): number {
-  const packed = parseInt(hex.slice(1), 16);
-  const channel = (value: number) => {
-    const c = value / 255;
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  };
-  return (
-    0.2126 * channel((packed >> 16) & 255) +
-    0.7152 * channel((packed >> 8) & 255) +
-    0.0722 * channel(packed & 255)
-  );
-}
-
-function contrastRatio(a: string, b: string): number {
-  const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-/**
- * Label ink for a solid band chip. Derived from the band color instead of a fixed
- * value so the five bands clear 4.5:1 in both themes without touching the palette.
- */
-function bandInk(background: string): string {
-  return contrastRatio(LIGHT_INK, background) >= contrastRatio(DARK_INK, background)
-    ? LIGHT_INK
-    : DARK_INK;
-}
-
-/** Position of a score inside the 300..850 track, as a layout percentage. */
-function trackPercent(score: number): number {
+function progress(score: number): number {
   const clamped = Math.min(MAX_SCORE, Math.max(MIN_SCORE, score));
-  return ((clamped - MIN_SCORE) / (MAX_SCORE - MIN_SCORE)) * 100;
+  return (clamped - MIN_SCORE) / (MAX_SCORE - MIN_SCORE);
 }
 
-/** Counts up to the real score on mount; the last frame lands exactly on it. */
+function mixHex(from: string, to: string, amount: number): string {
+  const start = from.replace('#', '');
+  const end = to.replace('#', '');
+  if (start.length !== 6 || end.length !== 6) return amount < 0.5 ? from : to;
+
+  const channel = (offset: number) => {
+    const a = Number.parseInt(start.slice(offset, offset + 2), 16);
+    const b = Number.parseInt(end.slice(offset, offset + 2), 16);
+    return Math.round(a + (b - a) * amount).toString(16).padStart(2, '0');
+  };
+
+  return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
+
+function segmentColor(index: number, palette: Palette): string {
+  const ratio = index / (SEGMENTS - 1);
+  if (ratio < 0.52) return mixHex(palette.danger, palette.warning, ratio / 0.52);
+  return mixHex(palette.warning, palette.positive, (ratio - 0.52) / 0.48);
+}
+
+function arcStyle(ratio: number, radius = 96): ViewStyle {
+  const angle = 196 + ratio * 148;
+  const radians = (angle * Math.PI) / 180;
+  return {
+    left: 132 + radius * Math.cos(radians) - 4,
+    top: 120 + radius * Math.sin(radians) - 11,
+    transform: [{ rotate: `${angle + 90}deg` }],
+  };
+}
+
 function useReveal(target: number): number {
   const [value, setValue] = useState(MIN_SCORE);
 
   useEffect(() => {
-    const start = Date.now();
-    let frame = requestAnimationFrame(function tick() {
-      const t = Math.min(1, (Date.now() - start) / REVEAL_MS);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(MIN_SCORE + (target - MIN_SCORE) * eased));
-      if (t < 1) frame = requestAnimationFrame(tick);
+    let frame = 0;
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+      if (cancelled) return;
+      if (reduced) {
+        setValue(target);
+        return;
+      }
+      const start = Date.now();
+      frame = requestAnimationFrame(function tick() {
+        const elapsed = Math.min(1, (Date.now() - start) / REVEAL_MS);
+        const eased = 1 - Math.pow(1 - elapsed, 3);
+        setValue(Math.round(MIN_SCORE + (target - MIN_SCORE) * eased));
+        if (elapsed < 1) frame = requestAnimationFrame(tick);
+      });
     });
-    return () => cancelAnimationFrame(frame);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [target]);
 
   return value;
@@ -84,49 +93,43 @@ function useReveal(target: number): number {
 
 export function ScoreGauge({ score }: { score: CashflowScore }) {
   const palette = usePalette();
-  const color = bandColor(score.band, palette);
   const shown = useReveal(score.score);
-  const fill = useSharedValue(0);
+  const scoreProgress = progress(score.score);
   const delta = score.previous_score === null ? null : score.score - score.previous_score;
-
-  useEffect(() => {
-    fill.value = withTiming(trackPercent(score.score), {
-      duration: REVEAL_MS,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [fill, score.score]);
-
-  const fillStyle = useAnimatedStyle(() => ({ width: `${fill.value}%` }));
+  const color = bandColor(score.band, palette);
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.eyebrow, { color: palette.muted }]}>Salud de tu flujo de efectivo</Text>
+      <View
+        style={styles.gauge}
+        accessible
+        accessibilityLabel={`${score.score} puntos, ${BAND_ES[score.band]}`}>
+        <Animated.View
+          entering={FadeIn.duration(260).reduceMotion(ReduceMotion.System)}
+          style={styles.arcLayer}>
+          {Array.from({ length: SEGMENTS }, (_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.segment,
+                arcStyle(index / (SEGMENTS - 1)),
+                { backgroundColor: segmentColor(index, palette) },
+              ]}
+            />
+          ))}
+        </Animated.View>
+        <Animated.View
+          entering={FadeIn.delay(300).duration(220).reduceMotion(ReduceMotion.System)}
+          style={[styles.currentMarker, arcStyle(scoreProgress)]}>
+          <View style={[styles.markerCore, { backgroundColor: palette.surface }]} />
+        </Animated.View>
 
-      <Text style={[styles.score, { color }]} accessibilityLabel={`${score.score} puntos`}>
-        {shown}
-      </Text>
-
-      <View style={styles.badges}>
-        <Badge label={BAND_ES[score.band]} color={bandInk(color)} background={color} />
-        {delta !== null && (
-          <Badge
-            label={`${delta >= 0 ? '+' : '−'}${Math.abs(delta)} pts`}
-            color={delta >= 0 ? palette.positive : palette.danger}
-            background={delta >= 0 ? palette.positiveSoft : palette.dangerSoft}
-          />
-        )}
-      </View>
-
-      <View style={[styles.track, { backgroundColor: palette.track }]}>
-        <Animated.View style={[styles.fill, { backgroundColor: color }, fillStyle]} />
-        {score.previous_score !== null && (
-          <View
-            style={[
-              styles.marker,
-              { backgroundColor: palette.muted, left: `${trackPercent(score.previous_score)}%` },
-            ]}
-          />
-        )}
+        <View style={styles.scoreGroup}>
+          <Text style={[styles.score, { color: palette.ink }]}>{shown}</Text>
+          <View style={[styles.bandPill, { backgroundColor: palette.positiveSoft }]}>
+            <Text style={[styles.band, { color }]}>{BAND_ES[score.band]}</Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.scale}>
@@ -134,28 +137,43 @@ export function ScoreGauge({ score }: { score: CashflowScore }) {
         <Text style={[styles.scaleLabel, { color: palette.muted }]}>{MAX_SCORE}</Text>
       </View>
 
-      {score.previous_score !== null && (
-        <Text style={[styles.caption, { color: palette.muted }]}>
-          La marca gris es tu score anterior: {score.previous_score}.
+      {delta !== null && (
+        <Text style={[styles.delta, { color: delta >= 0 ? palette.positive : palette.danger }]}>
+          {delta >= 0 ? '↑ +' : '↓ −'}{Math.abs(delta)} pts
         </Text>
       )}
-
-      <Text style={[styles.caption, { color: palette.muted }]}>
-        Calculado del {formatLongDay(score.period_start)} al {formatLongDay(score.period_end, true)}.
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 10 },
-  eyebrow: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  score: { fontSize: 64, fontWeight: '800', lineHeight: 68, fontVariant: ['tabular-nums'] },
-  badges: { flexDirection: 'row', gap: 8 },
-  track: { height: 12, borderRadius: 999, overflow: 'hidden', marginTop: 4 },
-  fill: { height: '100%', borderRadius: 999 },
-  marker: { position: 'absolute', top: 0, bottom: 0, width: 2, opacity: 0.9 },
-  scale: { flexDirection: 'row', justifyContent: 'space-between' },
-  scaleLabel: { fontSize: 11, fontVariant: ['tabular-nums'] },
-  caption: { fontSize: 12, lineHeight: 17 },
+  container: { alignItems: 'center' },
+  gauge: { width: 264, height: 148, position: 'relative' },
+  arcLayer: { position: 'absolute', inset: 0 },
+  segment: { position: 'absolute', width: 7, height: 20, borderRadius: 999 },
+  currentMarker: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginLeft: -11,
+    marginTop: -4,
+    borderWidth: 4,
+    borderColor: '#2E86C9',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1A5D91',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+  },
+  markerCore: { width: 13, height: 13, borderRadius: 7 },
+  scoreGroup: { position: 'absolute', left: 0, right: 0, top: 57, alignItems: 'center', gap: 3 },
+  score: { fontSize: 55, lineHeight: 59, fontWeight: '700', letterSpacing: -2.2, fontVariant: ['tabular-nums'] },
+  bandPill: { borderRadius: 999, paddingHorizontal: 17, paddingVertical: 4 },
+  band: { fontSize: 14, fontWeight: '600' },
+  scale: { width: 252, flexDirection: 'row', justifyContent: 'space-between', marginTop: -2 },
+  scaleLabel: { fontSize: 12, fontVariant: ['tabular-nums'] },
+  delta: { fontSize: 17, fontWeight: '700', marginTop: 4, fontVariant: ['tabular-nums'] },
 });

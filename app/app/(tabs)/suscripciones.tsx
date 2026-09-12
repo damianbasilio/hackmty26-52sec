@@ -1,12 +1,15 @@
-import { RefreshControl, ScrollView, StyleSheet, View as RawView } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import { useState } from 'react';
+import { Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/Card';
+import { HeroCard } from '@/components/HeroCard';
+import { MotionPressable, Reveal } from '@/components/Motion';
+import { PremiumSurface } from '@/components/PremiumSurface';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, SectionTitle } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
@@ -16,96 +19,151 @@ const LOAD_ERROR =
 
 export default function SuscripcionesScreen() {
   const palette = usePalette();
-
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
-    const checking = accounts.find((a) => a.type === 'checking') ?? accounts[0];
+    const checking = accounts.find((account) => account.type === 'checking') ?? accounts[0];
     if (!checking) throw new Error('No hay cuentas disponibles.');
     return dataSource.getSubscriptions(checking.id);
   });
 
-  // pantalla completa solo en la primera carga; al refrescar se queda el contenido
   if (loading && !data) return <LoadingState label="Buscando tus cargos recurrentes…" />;
   if (error || !data) return <ErrorState message={LOAD_ERROR} onRetry={reload} />;
 
   const subscriptions = data;
+  const refresh = <RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />;
 
   if (subscriptions.length === 0) {
     return (
-      <ScrollView
-        style={{ backgroundColor: palette.background }}
-        contentContainerStyle={styles.emptyContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
-        <EmptyState
-          title="Todavía no vemos suscripciones"
-          hint="Marcamos un cargo como suscripción cuando el mismo comercio te cobra varias veces con la misma cadencia. Tus movimientos aún no repiten ese patrón, así que preferimos no adivinar. En cuanto se repita, aparece aquí."
-        />
-      </ScrollView>
+      <PremiumSurface>
+        <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refresh}>
+          <Text style={styles.title}>Suscripciones</Text>
+          <EmptyState
+            title="Aún no vemos suscripciones"
+            hint="Cuando un comercio repita un cobro con la misma cadencia, aparecerá aquí con una explicación clara."
+          />
+        </ScrollView>
+      </PremiumSurface>
     );
   }
 
-  const annualTotal = subscriptions.reduce((sum, s) => sum + s.annual_cost_cents, 0);
-  const increased = subscriptions.filter((s) => s.price_increase_detected);
-  const increaseTotal = increased.reduce((sum, s) => sum + (s.price_delta_cents ?? 0), 0);
-  const unused = subscriptions.filter((s) => s.status === 'unused');
-  const unusedAnnual = unused.reduce((sum, s) => sum + s.annual_cost_cents, 0);
+  const annualTotal = subscriptions.reduce((sum, item) => sum + item.annual_cost_cents, 0);
+  const increased = subscriptions.filter((item) => item.price_increase_detected);
+  const spotlight = increased[0] ?? null;
+  const increase = spotlight?.price_delta_cents ?? 0;
+  const displaySubscriptions = [...subscriptions].sort((left, right) => {
+    const priority = (status: typeof left) =>
+      status.price_increase_detected ? 0 : status.status === 'unused' ? 1 : 2;
+    return priority(left) - priority(right);
+  });
 
   return (
-    <ScrollView
-      style={{ backgroundColor: palette.background }}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
-      <Card>
-        <Text style={[styles.eyebrow, { color: palette.muted }]}>Gasto fijo detectado</Text>
-        <Text style={styles.total}>{formatCents(annualTotal)}</Text>
-        <Text style={[styles.totalHint, { color: palette.muted }]}>
-          al año en {subscriptions.length} {subscriptions.length === 1 ? 'suscripción' : 'suscripciones'}
-        </Text>
+    <PremiumSurface>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        refreshControl={refresh}>
+        <Reveal>
+          <Text style={styles.title}>Suscripciones</Text>
+        </Reveal>
 
-        {(increased.length > 0 || unused.length > 0) && (
-          <RawView style={[styles.divider, { backgroundColor: palette.border }]} />
-        )}
+        <Reveal delay={55}>
+          <View style={styles.heroGroup}>
+            <HeroCard style={[styles.hero, spotlight ? styles.heroWithAlert : null]}>
+              <View>
+                <Text style={styles.heroAmount}>{formatCents(annualTotal)}</Text>
+                <Text style={styles.heroUnit}>al año</Text>
+              </View>
+              <Text style={styles.heroCaption}>
+                {subscriptions.length} {subscriptions.length === 1 ? 'cargo recurrente' : 'cargos recurrentes'}
+              </Text>
+            </HeroCard>
 
-        {increased.length > 0 && (
-          <Text style={[styles.flag, { color: palette.danger }]}>
-            {increased.map((s) => s.merchant_display_name).join(', ')}{' '}
-            {increased.length === 1 ? 'subió' : 'subieron'} de precio: {formatCents(increaseTotal)} más
-            por cobro.
+            {spotlight && (
+              <MotionPressable
+                accessibilityRole="button"
+                accessibilityLabel={`Revisar aumento de ${spotlight.merchant_display_name}`}
+                onPress={() => setExpandedId(spotlight.id)}
+                style={[styles.alertOverlay, { backgroundColor: palette.surfaceBlush }]}>
+                <View style={[styles.alertIcon, { backgroundColor: palette.dangerSoft }]}>
+                  <Text style={[styles.alertIconText, { color: palette.danger }]}>↗</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.alertText}>
+                  {spotlight.merchant_display_name} subió{' '}
+                  <Text style={{ color: palette.danger }}>{formatCents(Math.abs(increase))}</Text>
+                </Text>
+                <Text style={[styles.review, { color: palette.danger }]}>Revisar</Text>
+                <Text style={[styles.chevron, { color: palette.muted }]}>›</Text>
+              </MotionPressable>
+            )}
+          </View>
+        </Reveal>
+
+        <View style={styles.section}>
+          <SectionTitle>Tus suscripciones</SectionTitle>
+          <Card tone="sage" style={styles.subscriptionList}>
+            {displaySubscriptions.map((subscription, index) => (
+              <SubscriptionCard
+                key={subscription.id}
+                subscription={subscription}
+                expanded={expandedId === subscription.id}
+                isLast={index === displaySubscriptions.length - 1}
+                onToggle={() =>
+                  setExpandedId((current) => (current === subscription.id ? null : subscription.id))
+                }
+              />
+            ))}
+          </Card>
+        </View>
+
+        <Card>
+          <Text style={styles.detailTitle}>Cómo las detectamos</Text>
+          <Text style={[styles.detailCopy, { color: palette.muted }]}>
+            Buscamos coincidencias de comercio, monto y cadencia. Si el patrón cambia o deja de aparecer,
+            te lo explicamos sin adivinar.
           </Text>
-        )}
-
-        {unused.length > 0 && (
-          <Text style={[styles.flag, { color: palette.warning }]}>
-            No usas {unused.length === 1 ? '1 suscripción' : `${unused.length} suscripciones`}:{' '}
-            {formatCents(unusedAnnual)} al año que puedes recuperar.
-          </Text>
-        )}
-      </Card>
-
-      <Text style={[styles.sectionTitle, { color: palette.muted }]}>Tus suscripciones</Text>
-
-      {subscriptions.map((subscription, i) => (
-        <Animated.View key={subscription.id} entering={FadeInDown.delay(60 * i).duration(320)}>
-          <SubscriptionCard subscription={subscription} />
-        </Animated.View>
-      ))}
-
-      <Text style={[styles.footerText, { color: palette.muted }]}>
-        Detectamos estos cargos por su cadencia, no por una lista de comercios. Cada monto viene de tus
-        movimientos.
-      </Text>
-    </ScrollView>
+        </Card>
+      </ScrollView>
+    </PremiumSurface>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
-  emptyContent: { flexGrow: 1, padding: 16 },
-  eyebrow: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  total: { fontSize: 36, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  totalHint: { fontSize: 14, marginTop: -6 },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
-  flag: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
-  sectionTitle: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 8 },
-  footerText: { fontSize: 12, lineHeight: 17, marginTop: 4 },
+  content: { paddingHorizontal: 20, paddingTop: 16, gap: 22, paddingBottom: 132 },
+  emptyContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 16, gap: 24, justifyContent: 'center' },
+  title: { fontSize: 36, lineHeight: 42, fontWeight: '700', letterSpacing: -1.25 },
+  heroGroup: { paddingBottom: 34 },
+  hero: { minHeight: 218, justifyContent: 'space-between' },
+  heroWithAlert: { paddingBottom: 68 },
+  heroAmount: { color: '#FFFFFF', fontSize: 43, lineHeight: 49, fontWeight: '700', letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
+  heroUnit: { color: '#FFFFFF', fontSize: 20, lineHeight: 25, marginTop: 1 },
+  heroCaption: { color: 'rgba(255,255,255,0.76)', fontSize: 16 },
+  alertOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 78,
+    borderRadius: 23,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(196, 44, 44, 0.08)',
+    ...Platform.select({
+      ios: { shadowColor: '#5B2020', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.13, shadowRadius: 20 },
+      android: { elevation: 7 },
+      default: { boxShadow: '0 14px 28px rgba(91, 32, 32, 0.13)' },
+    }),
+  },
+  alertIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  alertIconText: { fontSize: 24, fontWeight: '600' },
+  alertText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  review: { fontSize: 13, fontWeight: '600' },
+  chevron: { fontSize: 24, fontWeight: '300' },
+  section: { gap: 12 },
+  subscriptionList: { padding: 6, gap: 0 },
+  detailTitle: { fontSize: 16, fontWeight: '700' },
+  detailCopy: { fontSize: 13, lineHeight: 19 },
 });

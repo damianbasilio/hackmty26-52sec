@@ -1,7 +1,14 @@
 import type { CashflowComponent } from '@contracts/types';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { Text } from '@/components/Themed';
 import { usePalette, type Palette } from '@/components/palette';
@@ -20,8 +27,12 @@ function ComponentRow({ component, index }: { component: CashflowComponent; inde
 
   useEffect(() => {
     fill.value = withDelay(
-      120 * index,
-      withTiming(component.value, { duration: 600, easing: Easing.out(Easing.cubic) }),
+      55 * index,
+      withTiming(component.value, {
+        duration: 480,
+        easing: Easing.out(Easing.cubic),
+        reduceMotion: ReduceMotion.System,
+      }),
     );
   }, [component.value, fill, index]);
 
@@ -42,7 +53,7 @@ function ComponentRow({ component, index }: { component: CashflowComponent; inde
         {component.value} de 100 · pesa {Math.round(component.weight * 100)}% del total
       </Text>
 
-      <Text style={styles.explanation}>{component.explanation}</Text>
+      <Text style={[styles.explanation, { color: palette.muted }]}>{component.explanation}</Text>
     </View>
   );
 }
@@ -58,13 +69,13 @@ export function ScoreBreakdown({ components }: { components: CashflowComponent[]
 }
 
 const styles = StyleSheet.create({
-  list: { gap: 18 },
-  row: { gap: 6 },
+  list: { gap: 22 },
+  row: { gap: 7 },
   head: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   label: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
   points: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  track: { height: 8, borderRadius: 999, overflow: 'hidden' },
+  track: { height: 7, borderRadius: 999, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 999 },
   meta: { fontSize: 12, fontVariant: ['tabular-nums'] },
-  explanation: { fontSize: 13, lineHeight: 19, opacity: 0.85 },
+  explanation: { fontSize: 13, lineHeight: 19 },
 });
