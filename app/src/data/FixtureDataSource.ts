@@ -131,8 +131,9 @@ export class FixtureDataSource implements DataSource {
       payee_last_four: draft.recipient.last_four,
       amount_cents: draft.amountCents,
       concept: draft.concept,
-      // Igual que contra la base: la app solo puede dejarla pendiente.
-      status: 'pending',
+      // El engine real aplica el retiro y el depósito de una vez; los fixtures
+      // imitan ese resultado para que la pantalla se vea igual sin backend.
+      status: 'completed',
       failure_reason: null,
       created_at: new Date().toISOString(),
     };

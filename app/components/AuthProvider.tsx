@@ -14,7 +14,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
-import { describeSupabaseError, supabase, supabaseConfigured } from '@/src/supabase';
+import { describeSupabaseError, supabase } from '@/src/supabase';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 30_000;
@@ -369,8 +369,6 @@ export function useAuth() {
   if (!value) throw new Error('useAuth debe usarse dentro de AuthProvider.');
   return value;
 }
-
-export { supabaseConfigured };
 
 const styles = StyleSheet.create({
   privacyShield: {

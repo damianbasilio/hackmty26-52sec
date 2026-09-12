@@ -22,7 +22,11 @@ type BankingContextValue = {
   accountId: string | null;
   transfers: Transfer[];
   recipients: TransferRecipient[];
-  /** Sent but not yet settled by the engine: already spoken for, still in the balance. */
+  /**
+   * Money already committed out of this account. Misma fórmula que
+   * `available_balance_cents` del engine: el saldo de Nessie no se mueve solo,
+   * así que las transferencias salientes se restan aquí.
+   */
   outgoingCents: number;
   loading: boolean;
   error: string | null;
@@ -114,7 +118,7 @@ export function BankingProvider({ children }: PropsWithChildren) {
     transfers,
     recipients,
     outgoingCents: transfers
-      .filter((transfer) => transfer.status === 'pending')
+      .filter((transfer) => transfer.status === 'pending' || transfer.status === 'completed')
       .reduce((sum, transfer) => sum + transfer.amount_cents, 0),
     loading,
     error,

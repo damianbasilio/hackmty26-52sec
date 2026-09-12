@@ -64,6 +64,8 @@ export type TransferDraft = {
 };
 
 /**
+ * Must match the engine's `^[A-Za-z0-9_-]{8,80}$`.
+ *
  * ponytail: Date.now + Math.random, no uuid dependency. Collisions only matter
  * within one customer's own transfers, where the primary key catches them.
  * Swap for crypto.randomUUID the day a polyfill lands in the bundle.
