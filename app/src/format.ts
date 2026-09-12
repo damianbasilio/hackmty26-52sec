@@ -15,3 +15,23 @@ export function formatShortDate(iso: string): string {
   const d = new Date(new Date(iso).getTime() - 6 * 3600 * 1000);
   return `${d.getUTCDate()} ${MONTHS_ES[d.getUTCMonth()]}`;
 }
+
+const MONTHS_ES_LONG = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+/** Calendar day "2026-10-05" -> "5 de octubre". No timezone shift: the day is already local. */
+export function formatLongDay(day: string, withYear = false): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const text = `${d} de ${MONTHS_ES_LONG[m - 1]}`;
+  return withYear ? `${text} de ${y}` : text;
+}
+
+/** Signed whole days from today in America/Monterrey to a calendar day. Future is positive. */
+export function daysFromToday(day: string, now: Date = new Date()): number {
+  const local = new Date(now.getTime() - 6 * 3600 * 1000);
+  const today = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  const [y, m, d] = day.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - today) / 86400000);
+}
