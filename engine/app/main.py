@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .routers import anomalies, savings, score, subscriptions
+from .routers import anomalies, savings, score, subscriptions, sync
 
 settings = get_settings()
 
@@ -19,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(sync.router)
 app.include_router(subscriptions.router)
 app.include_router(anomalies.router)
 app.include_router(score.router)

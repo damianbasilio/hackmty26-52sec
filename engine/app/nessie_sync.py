@@ -1,0 +1,182 @@
+"""Nessie -> Postgres ingestion.
+
+The float-to-cents conversion happens exactly once, in nessie.to_cents(), right
+where each Nessie row is mapped to our schema. Every rebuild afterwards
+(enrichment, subscriptions, anomalies, score) reads integers from Postgres and
+never touches Nessie or a float again.
+
+Idempotent: every upsert keys off the nessie_*_id unique columns, so running
+this twice updates the same rows instead of duplicating them.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from . import nessie, repository
+from .enrichment import local_day_of_week, local_hour_of_day, normalize_merchant, population_zscores
+from .models import Transaction
+
+_ACCOUNT_TYPE_MAP = {
+    "checking": "checking",
+    "savings": "savings",
+    "credit card": "credit_card",
+}
+
+
+def sync_all() -> dict[str, int]:
+    """Pulls every customer, account and transaction this API key can see."""
+    synced = {"customers": 0, "accounts": 0, "transactions": 0}
+
+    for nessie_customer in nessie.get_customers():
+        customer = repository.upsert_customer(_map_customer(nessie_customer))
+        synced["customers"] += 1
+
+        for nessie_account in nessie.get_accounts_for_customer(nessie_customer["_id"]):
+            account = repository.upsert_accounts([_map_account(customer["id"], nessie_account)])[0]
+            synced["accounts"] += 1
+            synced["transactions"] += _sync_transactions(account["id"], nessie_account["_id"])
+
+    return synced
+
+
+def _map_customer(c: dict) -> dict:
+    nessie_id = c["_id"]
+    first_name = c.get("first_name") or ""
+    last_name = c.get("last_name") or ""
+    return {
+        "id": f"cus_nessie_{nessie_id}",
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": c.get("email") or f"{first_name}.{last_name}@nessie.local".lower(),
+        "phone": c.get("phone_number"),
+        "nessie_customer_id": nessie_id,
+    }
+
+
+def _map_account(customer_id: str, a: dict) -> dict:
+    nessie_id = a["_id"]
+    digits = "".join(ch for ch in str(a.get("account_number") or "") if ch.isdigit())
+    last_four = (digits[-4:] or "0000").rjust(4, "0")
+    return {
+        "id": f"acc_nessie_{nessie_id}",
+        "customer_id": customer_id,
+        "nickname": a.get("nickname") or "Cuenta Nessie",
+        "type": _ACCOUNT_TYPE_MAP.get((a.get("type") or "").lower(), "checking"),
+        "last_four": last_four,
+        "balance_cents": nessie.to_cents(a.get("balance") or 0),
+        "nessie_account_id": nessie_id,
+    }
+
+
+def _sync_transactions(account_id: str, nessie_account_id: str) -> int:
+    rows = (
+        [_map_purchase(account_id, p) for p in nessie.get_purchases(nessie_account_id)]
+        + [_map_deposit(account_id, d) for d in nessie.get_deposits(nessie_account_id)]
+        + [_map_withdrawal(account_id, w) for w in nessie.get_withdrawals(nessie_account_id)]
+        + [
+            _map_transfer(account_id, nessie_account_id, t)
+            for t in nessie.get_transfers(nessie_account_id)
+        ]
+    )
+    repository.upsert_raw_transactions(rows)
+    _enrich_account_transactions(account_id)
+    return len(rows)
+
+
+def _occurred_at(date_str: str | None) -> str:
+    # Nessie only gives a calendar day; midnight UTC is the closest honest timestamp.
+    day = date_str or datetime.now(timezone.utc).date().isoformat()
+    return f"{day}T00:00:00Z"
+
+
+def _map_purchase(account_id: str, p: dict) -> dict:
+    return {
+        "id": f"txn_nessie_{p['_id']}",
+        "account_id": account_id,
+        "amount_cents": -nessie.to_cents(p.get("amount") or 0),
+        "type": "purchase",
+        "status": (p.get("status") or "completed").lower(),
+        "raw_description": p.get("description") or "COMPRA NESSIE",
+        "occurred_at": _occurred_at(p.get("purchase_date")),
+        "nessie_transaction_id": p["_id"],
+    }
+
+
+def _map_deposit(account_id: str, d: dict) -> dict:
+    return {
+        "id": f"txn_nessie_{d['_id']}",
+        "account_id": account_id,
+        "amount_cents": nessie.to_cents(d.get("amount") or 0),
+        "type": "deposit",
+        "status": (d.get("status") or "completed").lower(),
+        "raw_description": d.get("description") or "DEPOSITO NESSIE",
+        "occurred_at": _occurred_at(d.get("transaction_date")),
+        "nessie_transaction_id": d["_id"],
+    }
+
+
+def _map_withdrawal(account_id: str, w: dict) -> dict:
+    return {
+        "id": f"txn_nessie_{w['_id']}",
+        "account_id": account_id,
+        "amount_cents": -nessie.to_cents(w.get("amount") or 0),
+        "type": "withdrawal",
+        "status": (w.get("status") or "completed").lower(),
+        "raw_description": w.get("description") or "RETIRO NESSIE",
+        "occurred_at": _occurred_at(w.get("transaction_date")),
+        "nessie_transaction_id": w["_id"],
+    }
+
+
+def _map_transfer(account_id: str, nessie_account_id: str, t: dict) -> dict:
+    outgoing = t.get("payer_id") == nessie_account_id
+    amount = nessie.to_cents(t.get("amount") or 0)
+    return {
+        "id": f"txn_nessie_{t['_id']}",
+        "account_id": account_id,
+        "amount_cents": -amount if outgoing else amount,
+        "type": "transfer",
+        "status": (t.get("status") or "completed").lower(),
+        "raw_description": t.get("description") or "TRANSFERENCIA NESSIE",
+        "occurred_at": _occurred_at(t.get("transaction_date")),
+        "nessie_transaction_id": t["_id"],
+    }
+
+
+def _enrich_account_transactions(account_id: str) -> None:
+    """Mirrors what the seeder writes for fixtures: merchant, category, hour/day, z-score.
+
+    Recomputed over the account's full history each time so a merchant's
+    z-scores stay correct as more of its charges arrive.
+    """
+    transactions = repository.fetch_transactions(account_id)
+    merchants = repository.fetch_merchants()
+
+    by_merchant: dict[str, list[Transaction]] = {}
+    for txn in transactions:
+        guess = normalize_merchant(txn.raw_description)
+        by_merchant.setdefault(guess.normalized_name, []).append(txn)
+
+    rows = []
+    for normalized_name, txns in by_merchant.items():
+        merchant = merchants.get(normalized_name) or repository.get_or_create_merchant(
+            txns[0].raw_description
+        )
+        magnitudes = [-t.amount_cents for t in txns]
+        for txn, zscore in zip(txns, population_zscores(magnitudes)):
+            rows.append(
+                {
+                    "transaction_id": txn.id,
+                    "account_id": account_id,
+                    "merchant_id": merchant.id,
+                    "category": merchant.category,
+                    "category_confidence": 0.99 if merchant.is_recurring_biller else 0.92,
+                    "is_recurring": merchant.is_recurring_biller,
+                    "amount_zscore": zscore,
+                    "hour_of_day": local_hour_of_day(txn.occurred_at),
+                    "day_of_week": local_day_of_week(txn.occurred_at),
+                    "occurred_at": txn.occurred_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+    repository.upsert_transaction_enrichment(rows)

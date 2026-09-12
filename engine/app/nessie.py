@@ -28,3 +28,27 @@ def get(path: str, **params) -> dict | list:
 def to_cents(nessie_amount: float) -> int:
     """Nessie returns amounts as floats in pesos. Convert once, here, and never float again."""
     return round(nessie_amount * 100)
+
+
+def get_customers() -> list[dict]:
+    return get("/customers")
+
+
+def get_accounts_for_customer(customer_id: str) -> list[dict]:
+    return get(f"/customers/{customer_id}/accounts")
+
+
+def get_purchases(account_id: str) -> list[dict]:
+    return get(f"/accounts/{account_id}/purchases")
+
+
+def get_deposits(account_id: str) -> list[dict]:
+    return get(f"/accounts/{account_id}/deposits")
+
+
+def get_withdrawals(account_id: str) -> list[dict]:
+    return get(f"/accounts/{account_id}/withdrawals")
+
+
+def get_transfers(account_id: str) -> list[dict]:
+    return get(f"/accounts/{account_id}/transfers")

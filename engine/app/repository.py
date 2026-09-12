@@ -21,6 +21,36 @@ def get_client() -> Client:
     return create_client(s.supabase_url, s.supabase_service_role_key)
 
 
+# ---------------------------------------------------------------------------
+# Nessie ingestion writes. Upserts key off the nessie_*_id unique columns so
+# running the sync twice never duplicates a row.
+# ---------------------------------------------------------------------------
+
+
+def upsert_customer(row: dict) -> dict:
+    res = get_client().table("customers").upsert(row, on_conflict="nessie_customer_id").execute()
+    return res.data[0]
+
+
+def upsert_accounts(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    res = get_client().table("accounts").upsert(rows, on_conflict="nessie_account_id").execute()
+    return res.data
+
+
+def upsert_raw_transactions(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    res = (
+        get_client()
+        .table("transactions")
+        .upsert(rows, on_conflict="nessie_transaction_id")
+        .execute()
+    )
+    return res.data
+
+
 def fetch_account(account_id: str) -> dict | None:
     res = (
         get_client()
