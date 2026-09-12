@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { View as Box, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View as Box, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { Link } from 'expo-router';
 
 import type { AnomalyAlert, AnomalySeverity, EnrichedTransaction } from '@contracts/types';
@@ -53,7 +53,7 @@ export default function InicioScreen() {
 
   const month = useMemo(() => monthSummary(data?.transactions ?? []), [data?.transactions]);
 
-  if (loading) return <LoadingState label="Preparando tu resumen…" />;
+  if (loading && !data) return <LoadingState label="Preparando tu resumen…" />;
   if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
   const { checking, savings, customer, alerts } = data;
@@ -63,7 +63,10 @@ export default function InicioScreen() {
     <ScrollView
       style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}>
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.muted} />
+      }>
       <Text style={[styles.greeting, { color: palette.muted }]}>Hola, {customer.first_name}</Text>
 
       <Card>
