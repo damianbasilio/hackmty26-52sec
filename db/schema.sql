@@ -643,6 +643,7 @@ declare
   target_customer text;
   target_user uuid;
   taken text;
+  current_owner uuid;
   excluded_because text;
 begin
   select c.id, c.exclusion_reason into target_customer, excluded_because from customers c
@@ -666,6 +667,14 @@ begin
   where c.auth_user_id = target_user and c.id <> target_customer;
   if taken is not null then
     raise exception 'El usuario % ya está ligado al customer %. Un usuario por cliente.', auth_email, taken;
+  end if;
+
+  -- And the other direction: re-pointing a customer that already has an owner
+  -- hands somebody else's ledger over. Un-link it on purpose first if that is
+  -- really what you want.
+  select c.auth_user_id into current_owner from customers c where c.id = target_customer;
+  if current_owner is not null and current_owner <> target_user then
+    raise exception 'El customer % ya tiene dueño. Libéralo antes de ligarlo a otro usuario.', target_customer;
   end if;
 
   update customers c set auth_user_id = target_user where c.id = target_customer;
@@ -713,6 +722,16 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_auth_user();
+
+-- Postgres grants EXECUTE to PUBLIC on every new function, and PostgREST serves
+-- anything in `public` as /rest/v1/rpc/<name> to whoever holds the anon key —
+-- which ships inside the app bundle. These three are admin and trigger plumbing,
+-- not app surface: a reachable link_customer_to_auth_user is an account takeover.
+-- The functions the RLS policies call (owns_account, current_customer_id,
+-- can_see_split) and the one the app calls (join_split) stay reachable on purpose.
+revoke all on function public.link_customer_to_auth_user(text, text) from public;
+revoke all on function public.handle_new_auth_user() from public;
+revoke all on function public.apply_customer_exclusion() from public;
 
 -- ---------------------------------------------------------------------------
 -- Realtime. Only these tables emit; everything else the app reads on demand.

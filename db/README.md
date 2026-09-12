@@ -143,8 +143,18 @@ psql "$SUPABASE_DB_URL" \
   -f db/link_auth_user.sql
 ```
 
-`customer_key` acepta `customers.id` o `nessie_customer_id`. Repetir el mismo par no hace nada;
-apuntar un usuario a un segundo customer truena a propósito (`auth_user_id` es `unique`).
+`customer_key` acepta `customers.id` o `nessie_customer_id`. Repetir el mismo par no hace nada.
+Truena a propósito en las dos direcciones: apuntar un usuario a un segundo customer
+(`auth_user_id` es `unique`) y apuntar a un customer que **ya tiene dueño** — eso último sería
+entregarle el historial de alguien más a otra persona. Para reasignarlo, pon su `auth_user_id`
+en null primero, a mano y a sabiendas.
+
+La función es de administración y se corre por `psql`: `schema.sql` le **revoca el execute a
+`public`**, junto con los dos trigger functions. Postgres se lo da a `public` por omisión y
+PostgREST publica todo lo que vive en `public` como `/rest/v1/rpc/<nombre>`, alcanzable con la
+anon key — que viaja dentro del bundle de la app. Las que sí siguen alcanzables son las que usan
+las policies (`owns_account`, `current_customer_id`, `can_see_split`) y la que llama la app
+(`join_split`).
 
 **3. Verificar.** No des por hecho que quedó: compruébalo con los dos usuarios.
 
