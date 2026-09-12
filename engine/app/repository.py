@@ -315,7 +315,7 @@ def upsert_anomaly_alerts(rows: list[dict]) -> list[dict]:
     return res.data
 
 
-def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> dict:
+def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> dict | None:
     res = (
         get_client()
         .table("anomaly_alerts")
@@ -323,7 +323,8 @@ def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> d
         .eq("id", alert_id)
         .execute()
     )
-    return res.data[0]
+    # an update that matched nothing returns no rows, not an error
+    return res.data[0] if res.data else None
 
 
 def fetch_latest_cashflow_score(account_id: str) -> dict | None:
@@ -368,7 +369,7 @@ def upsert_savings_rules(rows: list[dict]) -> list[dict]:
     return res.data
 
 
-def activate_savings_rule(rule_id: str, destination_account_id: str, activated_at: str) -> dict:
+def activate_savings_rule(rule_id: str, destination_account_id: str, activated_at: str) -> dict | None:
     res = (
         get_client()
         .table("savings_rules")
@@ -382,4 +383,4 @@ def activate_savings_rule(rule_id: str, destination_account_id: str, activated_a
         .eq("id", rule_id)
         .execute()
     )
-    return res.data[0]
+    return res.data[0] if res.data else None

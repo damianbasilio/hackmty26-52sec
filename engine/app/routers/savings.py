@@ -50,4 +50,7 @@ def suggest_rules(account_id: str) -> list[dict]:
 @router.post("/rules/{rule_id}/activate")
 def activate_rule(rule_id: str, destination_account_id: str) -> dict:
     activated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return repository.activate_savings_rule(rule_id, destination_account_id, activated_at)
+    rule = repository.activate_savings_rule(rule_id, destination_account_id, activated_at)
+    if rule is None:
+        raise HTTPException(status_code=404, detail=f"No existe la regla de ahorro {rule_id}")
+    return rule

@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .repository import CustomerResolutionError, SupabaseNotConfigured
+from .responses import UTCJSONResponse
 from .routers import (
     accounts,
     anomalies,
@@ -21,6 +22,7 @@ app = FastAPI(
     title="52sec intelligence engine",
     version="0.1.0",
     description="Subscription, anomaly, score and savings engines. Only caller of the Nessie API.",
+    default_response_class=UTCJSONResponse,
 )
 
 app.add_middleware(
