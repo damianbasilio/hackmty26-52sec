@@ -71,8 +71,23 @@ sin ellas responde 500 en todos sus GET.
 
 `POST /sync` escribe clientes con el `service_role`, que **se salta la RLS**. El mapeo no manda
 `auth_user_id`, así que toda fila que entra por ahí queda con `auth_user_id` en null, igual que
-los fixtures. Los ids no chocan: la ingesta usa `cus_nessie_<hex24>` / `acc_nessie_<hex24>` y
+los fixtures. Los ids no chocan: la ingesta usa `cus_nessie_<uuid>` / `acc_nessie_<uuid>` y
 guarda el id original en `nessie_customer_id`.
+
+**Los ids de Nessie son UUID de 36 caracteres con guiones**, no hex de 24. Se ven así:
+
+```
+c5333ecf-b2ce-4812-95a6-f31172e4812f        <- nessie_customer_id, 36 caracteres
+cus_nessie_c5333ecf-b2ce-4812-95a6-f31172e4812f   <- customers.id
+```
+
+La única excepción es el cliente de los fixtures, `cus_0001`, que trae
+`1daa70b4a1daa70b4a1daa70`: eso sí son 24 hex, pero es un placeholder inventado en
+`/contracts/fixtures/customers.json`, no un id que Nessie haya devuelto nunca. No lo "corrijas".
+
+Por eso `fetch_current_customer()` del engine distingue por el prefijo `cus_nessie_` del id y no
+por la forma de `nessie_customer_id`: la columna no separa a los sincronizados de verdad del
+placeholder, el prefijo sí.
 
 Qué implica para la RLS: **nada de eso es visible desde la app.** Las policies filtran por
 `auth_user_id = auth.uid()`, y `owns_account()` llega a las transacciones cruzando
@@ -238,6 +253,47 @@ Resumen de quién ve qué, con tres usuarios (A crea, B se une, C es ajeno):
 | A (creador) | 1 | 2 | 1 |
 | B (participante) | 1 | 2 | 0 |
 | C (ajeno) | 0 | 0 | 0 |
+
+## `ACTIVE_CUSTOMER_ID`
+
+Es del `.env` de la raíz y lo lee el engine, pero se vuelve **obligatorio por culpa de lo que
+hay en la base**, así que va documentado aquí.
+
+`fetch_current_customer()` decide a qué cliente sirve el engine en este orden:
+
+1. `ACTIVE_CUSTOMER_ID`, si está puesto. Gana siempre, y si el id no existe truena en vez de
+   caerse a los fixtures en silencio.
+2. Si no, el cliente sincronizado de Nessie (id con prefijo `cus_nessie_`) — pero **solo si hay
+   exactamente uno**. Con dos o más, se niega a adivinar y truena.
+3. Sin ningún cliente de Nessie, el más viejo: el de los fixtures.
+
+El paso 2 es la trampa. **En cuanto corres `POST /sync` más de una vez, `ACTIVE_CUSTOMER_ID` deja
+de ser opcional**: cada corrida de `seed_demo_data()` crea un cliente nuevo en Nessie — no hay
+upsert por nombre — y el siguiente `sync_all()` los trae todos. Con la variable vacía, todos los
+`GET` del engine empiezan a responder:
+
+```
+Hay más de un cliente sincronizado de Nessie; define ACTIVE_CUSTOMER_ID para elegir cuál sirve el engine.
+```
+
+Para esta base, el valor correcto es el cliente limpio (ver
+[Datos envenenados de Nessie](#datos-envenenados-de-nessie--decisión-del-equipo)):
+
+```bash
+ACTIVE_CUSTOMER_ID=cus_nessie_c5333ecf-b2ce-4812-95a6-f31172e4812f
+```
+
+Ojo: es el `customers.id` **con prefijo**, no el `nessie_customer_id` pelado. Para verlo:
+
+```bash
+psql "$SUPABASE_DB_URL" -c "
+select id, excluded_at is null as usable, count(a.id) as cuentas
+from customers c left join accounts a on a.customer_id = c.id
+where c.id like 'cus_nessie_%' group by 1, 2 order by 1;"
+```
+
+Con `EXPO_PUBLIC_DATA_SOURCE=fixtures` (el default de la demo) nada de esto aplica: la app ni
+siquiera llama al engine.
 
 ## Realtime
 
