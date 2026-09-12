@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app import repository
 from app.main import app
-from app.repository import SupabaseNotConfigured
+from app.repository import CustomerResolutionError, SupabaseNotConfigured
 
 FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "fixtures"
 
@@ -82,6 +82,18 @@ def test_transactions_forwards_query_params(monkeypatch):
         "date_to": "2026-08-31",
         "limit": 10,
     }
+
+
+def test_customers_me_409s_when_customer_choice_is_ambiguous(monkeypatch):
+    def raise_ambiguous():
+        raise CustomerResolutionError("Hay más de un cliente sincronizado de Nessie")
+
+    monkeypatch.setattr(repository, "fetch_current_customer", raise_ambiguous)
+
+    res = client.get("/customers/me")
+
+    assert res.status_code == 409
+    assert "sincronizado" in res.json()["detail"]
 
 
 def test_missing_supabase_config_returns_503(monkeypatch):
