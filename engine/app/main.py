@@ -10,6 +10,7 @@ from .routers import (
     customers,
     savings,
     score,
+    splits,
     subscriptions,
     sync,
     transactions,
@@ -57,6 +58,7 @@ app.include_router(anomalies.router)
 app.include_router(score.router)
 app.include_router(savings.router)
 app.include_router(transfers.router)
+app.include_router(splits.router)
 
 
 @app.get("/health", tags=["meta"])

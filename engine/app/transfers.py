@@ -32,6 +32,8 @@ from . import nessie, nessie_sync, repository
 from .enrichment import format_mxn
 
 TRANSFER_REF = nessie_sync.TRANSFER_REF
+# Client-generated idempotency keys: transfers, splits and participants.
+ID_PATTERN = r"^[A-Za-z0-9_-]{8,80}$"
 # nessie_sync._map_account ids every synced account this way; anything else is fixture data
 _NESSIE_ACCOUNT_ID_PREFIX = "acc_nessie_"
 
@@ -67,7 +69,7 @@ class TransferInFlight(TransferError):
 class TransferRequest(BaseModel):
     # Client-generated idempotency key. When the app inserted the pending row
     # itself (db/README.md), this is that row's id.
-    id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,80}$")
+    id: str = Field(pattern=ID_PATTERN)
     account_id: str
     payee_account_id: str | None = None
     payee_name: str = Field(min_length=1, max_length=80)

@@ -421,14 +421,18 @@ def fetch_transfers(account_id: str) -> list[dict]:
     return res.data
 
 
-def insert_transfer(row: dict) -> dict:
+def _insert(table: str, row: dict) -> dict:
     try:
-        res = get_client().table("transfers").insert(row).execute()
+        res = get_client().table(table).insert(row).execute()
     except APIError as exc:
         if exc.code == _UNIQUE_VIOLATION:
             raise DuplicateRow(row["id"]) from exc
         raise
     return res.data[0]
+
+
+def insert_transfer(row: dict) -> dict:
+    return _insert("transfers", row)
 
 
 def update_transfer(transfer_id: str, fields: dict) -> dict:
@@ -474,3 +478,65 @@ def find_transaction_by_ref(account_id: str, ref: str) -> dict | None:
     ).data
     # LIKE treats "_" in ids as a wildcard; endswith is the exact check
     return next((row for row in rows if row["raw_description"].endswith(ref)), None)
+
+
+# ---------------------------------------------------------------------------
+# Splits. share_cents and status are written here, never by join_split() or
+# rebalance_split(): both resolve the caller with auth.uid(), null for the
+# service role. `paid` is generated from paid_at and is never written.
+# ---------------------------------------------------------------------------
+
+
+def fetch_split(split_id: str) -> dict | None:
+    res = get_client().table("split_requests").select("*").eq("id", split_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def fetch_open_split_by_code(code: str) -> dict | None:
+    res = (
+        get_client()
+        .table("split_requests")
+        .select("*")
+        .eq("code", code)
+        .eq("status", "open")
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def insert_split(row: dict) -> dict:
+    # DuplicateRow here is either the id or another open split's code
+    return _insert("split_requests", row)
+
+
+def update_split(split_id: str, fields: dict) -> dict:
+    res = get_client().table("split_requests").update(fields).eq("id", split_id).execute()
+    return res.data[0]
+
+
+def fetch_split_participants(split_id: str) -> list[dict]:
+    res = (
+        get_client()
+        .table("split_participants")
+        .select("*")
+        .eq("split_request_id", split_id)
+        .order("joined_at")
+        .order("id")
+        .execute()
+    )
+    return res.data
+
+
+def fetch_split_participant(participant_id: str) -> dict | None:
+    res = get_client().table("split_participants").select("*").eq("id", participant_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def insert_split_participant(row: dict) -> dict:
+    return _insert("split_participants", row)
+
+
+def update_split_participant(participant_id: str, fields: dict) -> dict:
+    res = get_client().table("split_participants").update(fields).eq("id", participant_id).execute()
+    return res.data[0]
