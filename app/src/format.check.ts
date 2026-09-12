@@ -1,7 +1,13 @@
 // Run: node app/src/format.check.ts   (Node strips the types)
 import assert from 'node:assert/strict';
 
-import { daysFromToday, formatCents, formatLongDay, formatShortDate } from './format.ts';
+import {
+  daysFromToday,
+  formatCents,
+  formatLongDay,
+  formatMonthName,
+  formatShortDate,
+} from './format.ts';
 
 assert.equal(formatCents(0), '$0.00');
 assert.equal(formatCents(5), '$0.05');
@@ -15,5 +21,7 @@ assert.equal(formatLongDay('2026-06-14', true), '14 de junio de 2026');
 assert.equal(daysFromToday('2026-10-05', new Date('2026-09-12T15:00:00Z')), 23);
 assert.equal(daysFromToday('2026-09-12', new Date('2026-09-12T05:00:00Z')), 1);
 assert.equal(daysFromToday('2026-09-01', new Date('2026-09-12T15:00:00Z')), -11);
+assert.equal(formatMonthName('2026-09'), 'septiembre');
+assert.equal(formatMonthName('2026-01-31'), 'enero');
 
 console.log('format ok');

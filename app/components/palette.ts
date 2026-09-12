@@ -10,6 +10,7 @@ export type Palette = {
   muted: string;
   track: string;
   accent: string;
+  accentSoft: string;
   positive: string;
   positiveSoft: string;
   warning: string;
@@ -27,6 +28,7 @@ const PALETTES: Record<'light' | 'dark', Palette> = {
     muted: '#5b6775',
     track: '#e4e9f1',
     accent: '#2f95dc',
+    accentSoft: '#e3f0fa',
     positive: '#14804a',
     positiveSoft: '#e2f2ea',
     warning: '#9a5b00',
@@ -42,6 +44,7 @@ const PALETTES: Record<'light' | 'dark', Palette> = {
     muted: '#9aa6b4',
     track: '#2c343e',
     accent: '#5cb3ef',
+    accentSoft: '#152935',
     positive: '#4cc38a',
     positiveSoft: '#173226',
     warning: '#e0a95b',

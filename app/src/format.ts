@@ -35,3 +35,8 @@ export function daysFromToday(day: string, now: Date = new Date()): number {
   const [y, m, d] = day.split('-').map(Number);
   return Math.round((Date.UTC(y, m - 1, d) - today) / 86400000);
 }
+
+/** `2026-09` (or any ISO day/timestamp) -> `septiembre`. */
+export function formatMonthName(monthKey: string): string {
+  return MONTHS_ES_LONG[Number(monthKey.slice(5, 7)) - 1] ?? monthKey;
+}

@@ -6,7 +6,7 @@ import { formatCents, formatShortDate } from '@/src/format';
 
 export const CATEGORY_LABELS: Record<MerchantCategory, string> = {
   groceries: 'Súper',
-  convenience: 'Tiendas de conveniencia',
+  convenience: 'Conveniencia',
   restaurants: 'Restaurantes',
   delivery: 'A domicilio',
   transport: 'Transporte',
@@ -34,11 +34,6 @@ export const SAVINGS_KIND_LABELS: Record<SavingsRuleKind, string> = {
   cancel_subscription: 'Cancelación',
   spend_cap: 'Tope de gasto',
 };
-
-const MONTHS_LONG = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-];
 
 const WEEKDAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 
@@ -68,11 +63,6 @@ export function formatDayHeading(dayKey: string, today = todayKey()): string {
   if (dayKey === yesterday) return 'Ayer';
   const weekday = WEEKDAYS[new Date(`${dayKey}T12:00:00Z`).getUTCDay()];
   return `${weekday} ${formatShortDate(`${dayKey}T12:00:00Z`)}`;
-}
-
-/** `2026-09` -> `septiembre`. */
-export function formatMonthName(monthKey: string): string {
-  return MONTHS_LONG[Number(monthKey.slice(5, 7)) - 1] ?? monthKey;
 }
 
 /** Same amount rendering everywhere: entradas con `+`, salidas con el `-` de formatCents. */

@@ -5,23 +5,16 @@ import type { SavingsRule } from '@contracts/types';
 
 import { Text } from '@/components/Themed';
 import { SAVINGS_KIND_LABELS } from '@/components/display';
-import {
-  Button,
-  Card,
-  Chip,
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  SectionTitle,
-  spacing,
-  usePalette,
-} from '@/components/ui';
+import { Card } from '@/components/Card';
+import { ErrorState, LoadingState } from '@/components/ScreenState';
+import { Button, Chip, EmptyState, SectionTitle, spacing } from '@/components/ui';
+import { usePalette } from '@/components/palette';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
 
 export default function AhorroScreen() {
-  const p = usePalette();
+  const palette = usePalette();
   const [activating, setActivating] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -62,22 +55,22 @@ export default function AhorroScreen() {
 
   return (
     <ScrollView
-      style={{ backgroundColor: p.background }}
+      style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}>
       <Card>
-        <Text style={[styles.summaryLabel, { color: p.muted }]}>Llevas ahorrado</Text>
-        <Text style={[styles.summaryAmount, { color: p.text }]}>{formatCents(savedToDate)}</Text>
+        <Text style={[styles.summaryLabel, { color: palette.muted }]}>Llevas ahorrado</Text>
+        <Text style={styles.summaryAmount}>{formatCents(savedToDate)}</Text>
         {projected > 0 ? (
-          <Text style={[styles.summaryHint, { color: p.muted }]}>
+          <Text style={[styles.summaryHint, { color: palette.muted }]}>
             Si activas lo sugerido, podrías juntar {formatCents(projected)} más al año.
           </Text>
         ) : null}
       </Card>
 
       {actionError ? (
-        <Card style={{ borderColor: p.critical }}>
-          <Text style={[styles.summaryHint, { color: p.critical }]}>{actionError}</Text>
+        <Card accent={palette.danger}>
+          <Text style={[styles.summaryHint, { color: palette.danger }]}>{actionError}</Text>
         </Card>
       ) : null}
 
@@ -85,7 +78,7 @@ export default function AhorroScreen() {
         <SectionTitle>Reglas activas</SectionTitle>
         {active.length === 0 ? (
           <Card>
-            <Text style={[styles.summaryHint, { color: p.muted }]}>
+            <Text style={[styles.summaryHint, { color: palette.muted }]}>
               Todavía no tienes reglas activas. Activa una sugerencia para empezar.
             </Text>
           </Card>
@@ -131,23 +124,23 @@ function RuleCard({
   onActivate?: () => void;
   busy?: boolean;
 }) {
-  const p = usePalette();
+  const palette = usePalette();
   const suggested = rule.status === 'suggested';
 
   return (
     <Card>
       <Box style={styles.ruleHead}>
-        <Text style={[styles.ruleTitle, { color: p.text }]}>{rule.title}</Text>
+        <Text style={styles.ruleTitle}>{rule.title}</Text>
         <Chip label={SAVINGS_KIND_LABELS[rule.kind]} />
       </Box>
-      <Text style={[styles.ruleBody, { color: p.muted }]}>{rule.description}</Text>
+      <Text style={[styles.ruleBody, { color: palette.muted }]}>{rule.description}</Text>
 
-      <Box style={[styles.ruleFooter, { borderColor: p.border }]}>
+      <Box style={[styles.ruleFooter, { borderColor: palette.border }]}>
         <Box>
-          <Text style={[styles.ruleMetricLabel, { color: p.muted }]}>
+          <Text style={[styles.ruleMetricLabel, { color: palette.muted }]}>
             {suggested ? 'Ahorro estimado al año' : 'Ahorrado hasta hoy'}
           </Text>
-          <Text style={[styles.ruleMetric, { color: suggested ? p.text : p.positive }]}>
+          <Text style={[styles.ruleMetric, suggested ? null : { color: palette.positive }]}>
             {formatCents(
               suggested ? rule.projected_annual_savings_cents : rule.saved_to_date_cents
             )}
@@ -156,7 +149,7 @@ function RuleCard({
         {onActivate ? (
           <Button label={busy ? 'Activando…' : 'Activar'} onPress={onActivate} disabled={busy} />
         ) : (
-          <Chip label="Activa" tone={{ background: p.infoBg, color: p.info }} />
+          <Chip label="Activa" tone={{ background: palette.accentSoft, color: palette.accent }} />
         )}
       </Box>
     </Card>
