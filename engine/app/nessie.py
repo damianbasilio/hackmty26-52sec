@@ -74,6 +74,10 @@ def get_transfers(account_id: str) -> list[dict]:
     return get(f"/accounts/{account_id}/transfers")
 
 
+def get_bills(account_id: str) -> list[dict]:
+    return get(f"/accounts/{account_id}/bills")
+
+
 def create_customer(first_name: str, last_name: str, address: dict) -> dict:
     return post("/customers", {"first_name": first_name, "last_name": last_name, "address": address})
 

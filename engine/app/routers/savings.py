@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from .. import repository
+from ..bills import detect_with_bills
 from ..savings_engine import suggest_savings_rules
-from ..subscriptions_engine import detect_subscriptions
 
 router = APIRouter(prefix="/savings", tags=["savings"])
 
@@ -31,7 +31,8 @@ def suggest_rules(account_id: str) -> list[dict]:
     existing_subscription_ids = {
         (row["merchant_id"], row["cadence"]): row["id"] for row in existing_subscriptions
     }
-    subscriptions = detect_subscriptions(account_id, transactions, merchants, existing_subscription_ids)
+    now = datetime.now(timezone.utc)
+    subscriptions = detect_with_bills(account_id, transactions, merchants, existing_subscription_ids, now.date())
     existing_rules = repository.fetch_savings_rules(account_id)
     savings_account_id = repository.fetch_savings_account_id(account["customer_id"])
 
@@ -42,7 +43,7 @@ def suggest_rules(account_id: str) -> list[dict]:
         subscriptions,
         existing_rules,
         savings_account_id,
-        datetime.now(timezone.utc),
+        now,
     )
     return repository.upsert_savings_rules(suggestions)
 
