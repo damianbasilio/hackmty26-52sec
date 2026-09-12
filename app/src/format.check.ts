@@ -1,6 +1,7 @@
 // Run: node app/src/format.check.ts   (Node strips the types)
 import assert from 'node:assert/strict';
 
+import { sharesFor } from './data/shares.ts';
 import { moneyInputToCents, normalizeMoneyInput } from './moneyInput.ts';
 import {
   daysFromToday,
@@ -43,5 +44,22 @@ assert.equal(moneyInputToCents('12.'), 1200);
 assert.equal(moneyInputToCents('14250.00'), 1425000);
 assert.ok(Number.isInteger(moneyInputToCents('0.1')));
 assert.equal(formatCents(moneyInputToCents(normalizeMoneyInput('14,250.005'))), '$14,250.00');
+
+// Repartir una cuenta no puede perder ni inventar centavos, y el orden importa:
+// el sobrante va a quien entro primero, igual que rebalance_split() en la base.
+assert.deepEqual(sharesFor(1000, 3), [334, 333, 333]);
+assert.deepEqual(sharesFor(1001, 2), [501, 500]);
+assert.deepEqual(sharesFor(5, 5), [1, 1, 1, 1, 1]);
+assert.deepEqual(sharesFor(0, 3), [0, 0, 0]);
+assert.deepEqual(sharesFor(100, 0), []);
+for (const total of [1, 7, 99, 1425000, 123456789]) {
+  for (const people of [1, 2, 3, 4, 7, 11]) {
+    const parts = sharesFor(total, people);
+    assert.equal(parts.length, people);
+    assert.equal(parts.reduce((sum, part) => sum + part, 0), total);
+    assert.ok(Math.max(...parts) - Math.min(...parts) <= 1);
+    assert.ok(parts.every(Number.isInteger));
+  }
+}
 
 console.log('format ok');
