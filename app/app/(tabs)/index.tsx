@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { View as Box, ScrollView, StyleSheet } from 'react-native';
+import { useMemo, useState } from 'react';
+import { View as Box, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Link } from 'expo-router';
 
 import type { AnomalyAlert, AnomalySeverity, EnrichedTransaction } from '@contracts/types';
@@ -20,6 +20,14 @@ const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
   critical: 'Urgente',
 };
 
+type Resolution = NonNullable<AnomalyAlert['resolution']>;
+
+const RESOLUTIONS: { value: Resolution; label: string }[] = [
+  { value: 'confirmed_legit', label: 'Sí fui yo' },
+  { value: 'confirmed_fraud', label: 'No fui yo' },
+  { value: 'dismissed', label: 'Ignorar' },
+];
+
 function severityTone(palette: Palette, severity: AnomalySeverity) {
   if (severity === 'critical') return { background: palette.dangerSoft, color: palette.danger };
   if (severity === 'warning') return { background: palette.warningSoft, color: palette.warning };
@@ -28,6 +36,7 @@ function severityTone(palette: Palette, severity: AnomalySeverity) {
 
 export default function InicioScreen() {
   const palette = usePalette();
+  const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
@@ -48,6 +57,7 @@ export default function InicioScreen() {
   if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
   const { checking, savings, customer, alerts } = data;
+  const openAlerts = alerts.filter((a) => !resolvedIds.includes(a.id));
 
   return (
     <ScrollView
@@ -74,11 +84,23 @@ export default function InicioScreen() {
       {alerts.length > 0 ? (
         <Box style={styles.section}>
           <SectionTitle>Necesita tu atención</SectionTitle>
-          <Box style={styles.stack}>
-            {alerts.map((alert) => (
-              <AlertCard key={alert.id} alert={alert} />
-            ))}
-          </Box>
+          {openAlerts.length === 0 ? (
+            <Card>
+              <Text style={[styles.alertBody, { color: palette.muted }]}>
+                Listo, no queda nada por revisar.
+              </Text>
+            </Card>
+          ) : (
+            <Box style={styles.stack}>
+              {openAlerts.map((alert) => (
+                <AlertCard
+                  key={alert.id}
+                  alert={alert}
+                  onResolved={() => setResolvedIds((prev) => [...prev, alert.id])}
+                />
+              ))}
+            </Box>
+          )}
         </Box>
       ) : null}
 
@@ -138,9 +160,24 @@ export default function InicioScreen() {
   );
 }
 
-function AlertCard({ alert }: { alert: AnomalyAlert }) {
+function AlertCard({ alert, onResolved }: { alert: AnomalyAlert; onResolved: () => void }) {
   const palette = usePalette();
   const tone = severityTone(palette, alert.severity);
+  const [saving, setSaving] = useState<Resolution | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // no setSaving(null) on success: onResolved unmounts this card
+  async function resolve(resolution: Resolution) {
+    setFailed(false);
+    setSaving(resolution);
+    try {
+      await dataSource.resolveAlert(alert.id, resolution);
+      onResolved();
+    } catch {
+      setFailed(true);
+      setSaving(null);
+    }
+  }
 
   return (
     <Card accent={tone.color}>
@@ -151,6 +188,34 @@ function AlertCard({ alert }: { alert: AnomalyAlert }) {
       <Text style={[styles.alertBody, { color: palette.muted }]}>{alert.explanation}</Text>
       {alert.suggested_action ? (
         <Text style={[styles.alertAction, { color: tone.color }]}>{alert.suggested_action}</Text>
+      ) : null}
+
+      <Box style={[styles.alertActions, { borderColor: palette.border }]}>
+        {RESOLUTIONS.map(({ value, label }) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            disabled={saving !== null}
+            onPress={() => resolve(value)}
+            style={({ pressed }) => [
+              styles.actionPill,
+              {
+                backgroundColor: palette.surfaceAlt,
+                borderColor: palette.border,
+                opacity: saving !== null && saving !== value ? 0.4 : pressed ? 0.7 : 1,
+              },
+            ]}>
+            <Text style={[styles.actionPillLabel, { color: palette.muted }]}>
+              {saving === value ? 'Guardando…' : label}
+            </Text>
+          </Pressable>
+        ))}
+      </Box>
+
+      {failed ? (
+        <Text style={[styles.alertBody, { color: palette.danger }]}>
+          No pudimos guardar tu respuesta. Revisa tu conexión e inténtalo otra vez.
+        </Text>
       ) : null}
     </Card>
   );
@@ -221,6 +286,22 @@ const styles = StyleSheet.create({
   alertTitle: { flex: 1, fontSize: 16, fontWeight: '700' },
   alertBody: { fontSize: 14, lineHeight: 20 },
   alertAction: { fontSize: 14, fontWeight: '600' },
+  alertActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.md,
+    marginTop: spacing.xs,
+  },
+  actionPill: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionPillLabel: { fontSize: 13, fontWeight: '700' },
   merchantRow: { gap: spacing.xs, paddingVertical: spacing.xs },
   merchantHead: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
   merchantName: { flex: 1, fontSize: 15 },
