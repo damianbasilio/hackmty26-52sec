@@ -4,7 +4,16 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .repository import SupabaseNotConfigured
-from .routers import accounts, anomalies, customers, savings, score, subscriptions, transactions
+from .routers import (
+    accounts,
+    anomalies,
+    customers,
+    savings,
+    score,
+    subscriptions,
+    sync,
+    transactions,
+)
 
 settings = get_settings()
 
@@ -30,6 +39,7 @@ def handle_supabase_not_configured(request: Request, exc: SupabaseNotConfigured)
 app.include_router(customers.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
+app.include_router(sync.router)
 app.include_router(subscriptions.router)
 app.include_router(anomalies.router)
 app.include_router(score.router)

@@ -49,6 +49,36 @@ def fetch_accounts(customer_id: str) -> list[dict]:
     return res.data
 
 
+# ---------------------------------------------------------------------------
+# Nessie ingestion writes. Upserts key off the nessie_*_id unique columns so
+# running the sync twice never duplicates a row.
+# ---------------------------------------------------------------------------
+
+
+def upsert_customer(row: dict) -> dict:
+    res = get_client().table("customers").upsert(row, on_conflict="nessie_customer_id").execute()
+    return res.data[0]
+
+
+def upsert_accounts(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    res = get_client().table("accounts").upsert(rows, on_conflict="nessie_account_id").execute()
+    return res.data
+
+
+def upsert_raw_transactions(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    res = (
+        get_client()
+        .table("transactions")
+        .upsert(rows, on_conflict="nessie_transaction_id")
+        .execute()
+    )
+    return res.data
+
+
 def fetch_enriched_transactions(
     account_id: str, date_from: str | None, date_to: str | None, limit: int | None
 ) -> list[dict]:
