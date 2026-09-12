@@ -63,4 +63,7 @@ def resolve_alert(alert_id: str, resolution: str) -> dict:
     if resolution not in VALID_RESOLUTIONS:
         raise HTTPException(status_code=422, detail=f"resolution must be one of {sorted(VALID_RESOLUTIONS)}")
     resolved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return repository.resolve_anomaly_alert(alert_id, resolution, resolved_at)
+    alert = repository.resolve_anomaly_alert(alert_id, resolution, resolved_at)
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"No existe la alerta {alert_id}")
+    return alert
