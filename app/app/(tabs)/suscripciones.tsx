@@ -8,6 +8,7 @@ import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
+import { EmptyState } from '@/components/ui';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
 
@@ -15,6 +16,9 @@ type State =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; subscriptions: Subscription[] };
+
+const LOAD_ERROR =
+  'Necesitamos tus movimientos para encontrar cargos recurrentes y ahora no pudimos leerlos. Revisa tu conexión e inténtalo de nuevo.';
 
 export default function SuscripcionesScreen() {
   const palette = usePalette();
@@ -47,9 +51,24 @@ export default function SuscripcionesScreen() {
   }, [load]);
 
   if (state.kind === 'loading') return <LoadingState label="Buscando tus cargos recurrentes…" />;
-  if (state.kind === 'error') return <ErrorState message={state.message} onRetry={retry} />;
+  if (state.kind === 'error') return <ErrorState message={LOAD_ERROR} onRetry={retry} />;
 
   const { subscriptions } = state;
+
+  if (subscriptions.length === 0) {
+    return (
+      <ScrollView
+        style={{ backgroundColor: palette.background }}
+        contentContainerStyle={styles.emptyContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.accent} />}>
+        <EmptyState
+          title="Todavía no vemos suscripciones"
+          hint="Marcamos un cargo como suscripción cuando el mismo comercio te cobra varias veces con la misma cadencia. Tus movimientos aún no repiten ese patrón, así que preferimos no adivinar. En cuanto se repita, aparece aquí."
+        />
+      </ScrollView>
+    );
+  }
+
   const annualTotal = subscriptions.reduce((sum, s) => sum + s.annual_cost_cents, 0);
   const increased = subscriptions.filter((s) => s.price_increase_detected);
   const increaseTotal = increased.reduce((sum, s) => sum + (s.price_delta_cents ?? 0), 0);
@@ -106,6 +125,7 @@ export default function SuscripcionesScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 40 },
+  emptyContent: { flexGrow: 1, padding: 16 },
   eyebrow: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
   total: { fontSize: 36, fontWeight: '800', fontVariant: ['tabular-nums'] },
   totalHint: { fontSize: 14, marginTop: -6 },
