@@ -54,6 +54,11 @@ export function todayKey(): string {
   return localDayKey(new Date().toISOString());
 }
 
+/** ISO UTC timestamp -> `21:12` as seen in Monterrey. */
+export function localTime(iso: string): string {
+  return new Date(new Date(iso).getTime() - TZ_OFFSET_MS).toISOString().slice(11, 16);
+}
+
 /** `2026-09-12` -> `Hoy`, `Ayer` or `vie 12 sep`. */
 export function formatDayHeading(dayKey: string, today = todayKey()): string {
   if (dayKey === today) return 'Hoy';
