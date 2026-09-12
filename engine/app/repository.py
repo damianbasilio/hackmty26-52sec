@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from .config import get_settings
@@ -23,8 +24,19 @@ class SupabaseNotConfigured(RuntimeError):
         )
 
 
+class SchemaOutdated(SupabaseNotConfigured):
+    """The live database lacks something db/schema.sql already creates. Served as 503."""
+
+    def __init__(self, missing: str) -> None:
+        RuntimeError.__init__(self, f"Falta {missing} en la base: aplica db/schema.sql y reintenta.")
+
+
 class CustomerResolutionError(RuntimeError):
     """Raised when fetch_current_customer can't pick a customer without guessing."""
+
+
+_MISSING_TABLE = "PGRST205"
+_MISSING_COLUMN = "42703"
 
 
 @lru_cache
@@ -57,6 +69,10 @@ def fetch_current_customer() -> dict | None:
        one arbitrarily.
     3. With no Nessie customer at all, fall back to the oldest row — the
        fixture customer from db/seed.js.
+
+    A quarantined customer (excluded_at set, see excluded_nessie_customers in
+    db/schema.sql) is never served: steps 2 and 3 skip it, so it can't make the
+    choice ambiguous either, and step 1 raises instead of returning it.
     """
     active_id = get_settings().active_customer_id
     if active_id:
@@ -65,16 +81,15 @@ def fetch_current_customer() -> dict | None:
             raise CustomerResolutionError(
                 f"ACTIVE_CUSTOMER_ID={active_id!r} no corresponde a ningún cliente en customers."
             )
-        return res.data[0]
+        customer = res.data[0]
+        if customer.get("excluded_at"):
+            raise CustomerResolutionError(
+                f"ACTIVE_CUSTOMER_ID={active_id!r} está en cuarentena y no se sirve: "
+                f"{customer.get('exclusion_reason')}"
+            )
+        return customer
 
-    synced = (
-        get_client()
-        .table("customers")
-        .select("*")
-        .like("id", f"{_NESSIE_SYNCED_ID_PREFIX}%")
-        .order("created_at")
-        .execute()
-    ).data
+    synced = _unquarantined_customers(like_prefix=_NESSIE_SYNCED_ID_PREFIX)
     if len(synced) > 1:
         raise CustomerResolutionError(
             "Hay más de un cliente sincronizado de Nessie; define ACTIVE_CUSTOMER_ID para "
@@ -83,8 +98,36 @@ def fetch_current_customer() -> dict | None:
     if synced:
         return synced[0]
 
-    res = get_client().table("customers").select("*").order("created_at").limit(1).execute()
-    return res.data[0] if res.data else None
+    oldest = _unquarantined_customers(limit=1)
+    return oldest[0] if oldest else None
+
+
+def _unquarantined_customers(like_prefix: str | None = None, limit: int | None = None) -> list[dict]:
+    query = get_client().table("customers").select("*").is_("excluded_at", "null")
+    if like_prefix:
+        query = query.like("id", f"{like_prefix}%")
+    query = query.order("created_at")
+    if limit is not None:
+        query = query.limit(limit)
+    try:
+        return query.execute().data
+    except APIError as exc:
+        if exc.code == _MISSING_COLUMN:
+            raise SchemaOutdated("la columna customers.excluded_at") from exc
+        raise
+
+
+def fetch_excluded_nessie_customers() -> dict[str, str]:
+    """Quarantined Nessie customer id -> reason. The list is lane A's (db/schema.sql)."""
+    try:
+        rows = (
+            get_client().table("excluded_nessie_customers").select("nessie_customer_id,reason").execute()
+        ).data
+    except APIError as exc:
+        if exc.code == _MISSING_TABLE:
+            raise SchemaOutdated("la tabla excluded_nessie_customers") from exc
+        raise
+    return {row["nessie_customer_id"]: row["reason"] for row in rows}
 
 
 def fetch_accounts(customer_id: str) -> list[dict]:
