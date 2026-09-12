@@ -25,7 +25,16 @@ def scan(account_id: str) -> list[dict]:
         raise HTTPException(status_code=404, detail="No transactions for this account")
 
     merchants = repository.fetch_merchants()
-    subscriptions = detect_subscriptions(account_id, transactions, merchants)
+    existing_subscriptions = repository.fetch_subscriptions(account_id)
+    existing_subscription_ids = {
+        (row["merchant_id"], row["cadence"]): row["id"] for row in existing_subscriptions
+    }
+    subscriptions = detect_subscriptions(account_id, transactions, merchants, existing_subscription_ids)
+    # A price-hike alert links subscription_id by FK, so whatever we just
+    # detected has to actually exist in the table — don't assume
+    # /subscriptions/detect already ran.
+    repository.upsert_subscriptions(subscriptions)
+
     existing = repository.fetch_anomaly_alerts(account_id, include_resolved=True)
     existing_ids = {
         row["transaction_id"]: row["id"]
