@@ -1,0 +1,207 @@
+[
+  {
+    "id": "mer_0001",
+    "normalized_name": "oxxo",
+    "display_name": "OXXO",
+    "category": "convenience",
+    "raw_descriptor_samples": [
+      "OXXO TEC 4412 MTY",
+      "OXXO GONZALITOS 8871",
+      "OXXO CONTRY SUR 2210"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0002",
+    "normalized_name": "soriana",
+    "display_name": "Soriana",
+    "category": "groceries",
+    "raw_descriptor_samples": [
+      "SORIANA HIPER CUMBRES",
+      "SORIANA SUPER GARZA SADA"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0003",
+    "normalized_name": "chedraui",
+    "display_name": "Chedraui",
+    "category": "groceries",
+    "raw_descriptor_samples": [
+      "CHEDRAUI SELECTO VALLE",
+      "CHEDRAUI LINCOLN"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0004",
+    "normalized_name": "rappi",
+    "display_name": "Rappi",
+    "category": "delivery",
+    "raw_descriptor_samples": [
+      "RAPPI MX CDMX",
+      "RAPPI*RESTAURANTES"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0005",
+    "normalized_name": "didi",
+    "display_name": "DiDi",
+    "category": "transport",
+    "raw_descriptor_samples": [
+      "DIDI RIDES MX",
+      "DIDI*VIAJE 8821"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0006",
+    "normalized_name": "pemex",
+    "display_name": "Pemex",
+    "category": "fuel",
+    "raw_descriptor_samples": [
+      "PEMEX E07421 MONTERREY"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0007",
+    "normalized_name": "cfe",
+    "display_name": "CFE",
+    "category": "utilities",
+    "raw_descriptor_samples": [
+      "CFE SUMINISTRADOR SERV BASICOS"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0008",
+    "normalized_name": "telmex",
+    "display_name": "Telmex",
+    "category": "telecom",
+    "raw_descriptor_samples": [
+      "TELMEX PAGO FIJO 81XXXX"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0009",
+    "normalized_name": "spotify",
+    "display_name": "Spotify",
+    "category": "streaming",
+    "raw_descriptor_samples": [
+      "SPOTIFY MX P1A2B3"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0010",
+    "normalized_name": "netflix",
+    "display_name": "Netflix",
+    "category": "streaming",
+    "raw_descriptor_samples": [
+      "NETFLIX.COM MX"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0011",
+    "normalized_name": "smart-fit",
+    "display_name": "Smart Fit",
+    "category": "fitness",
+    "raw_descriptor_samples": [
+      "SMART FIT MEXICO SA"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0012",
+    "normalized_name": "renta-depto",
+    "display_name": "Renta Depto Contry",
+    "category": "housing",
+    "raw_descriptor_samples": [
+      "SPEI ENVIADO RENTA DEPTO"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0013",
+    "normalized_name": "nomina-tecnologica-del-norte",
+    "display_name": "Nómina Tecnológica del Norte",
+    "category": "income",
+    "raw_descriptor_samples": [
+      "DEPOSITO NOMINA TEC DEL NORTE"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0014",
+    "normalized_name": "farmacias-guadalajara",
+    "display_name": "Farmacias Guadalajara",
+    "category": "health",
+    "raw_descriptor_samples": [
+      "FARMACIAS GUADALAJARA 1120"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0015",
+    "normalized_name": "starbucks",
+    "display_name": "Starbucks",
+    "category": "restaurants",
+    "raw_descriptor_samples": [
+      "STARBUCKS VALLE ORIENTE"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0016",
+    "normalized_name": "amazon-mx",
+    "display_name": "Amazon México",
+    "category": "shopping",
+    "raw_descriptor_samples": [
+      "AMAZON MX MARKETPLACE",
+      "AMZN MKTP MX"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0017",
+    "normalized_name": "cinepolis",
+    "display_name": "Cinépolis",
+    "category": "shopping",
+    "raw_descriptor_samples": [
+      "CINEPOLIS VIP VALLE"
+    ],
+    "is_recurring_biller": false,
+    "logo_url": null
+  },
+  {
+    "id": "mer_0018",
+    "normalized_name": "comision-manejo-de-cuenta",
+    "display_name": "Comisión por manejo de cuenta",
+    "category": "fees",
+    "raw_descriptor_samples": [
+      "COMISION MANEJO DE CUENTA"
+    ],
+    "is_recurring_biller": true,
+    "logo_url": null
+  }
+]

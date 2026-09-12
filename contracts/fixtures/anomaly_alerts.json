@@ -1,0 +1,99 @@
+[
+  {
+    "id": "alr_0001",
+    "account_id": "acc_checking_0001",
+    "transaction_id": "txn_0046",
+    "subscription_id": null,
+    "severity": "critical",
+    "score": 92,
+    "signals": [
+      {
+        "kind": "duplicate_charge",
+        "weight": 0.7,
+        "label": "Cargo duplicado",
+        "evidence": {
+          "original_transaction_id": "txn_0045",
+          "minutes_apart": 7,
+          "amount_cents": -33400
+        }
+      },
+      {
+        "kind": "velocity_spike",
+        "weight": 0.3,
+        "label": "2 cargos en 10 min",
+        "evidence": {
+          "charges_in_window": 2,
+          "window_minutes": 10,
+          "merchant": "Rappi"
+        }
+      }
+    ],
+    "title": "Cargo duplicado en Rappi",
+    "explanation": "Rappi te cobró $334.00 dos veces el 8 de septiembre con 7 minutos de diferencia. Normalmente solo hay un cargo por pedido, así que probablemente uno sea un error.",
+    "suggested_action": "Reportar el segundo cargo con Rappi",
+    "detected_at": "2026-09-08T21:25:00Z",
+    "resolved_at": null,
+    "resolution": null
+  },
+  {
+    "id": "alr_0002",
+    "account_id": "acc_checking_0001",
+    "transaction_id": "txn_0049",
+    "subscription_id": null,
+    "severity": "warning",
+    "score": 64,
+    "signals": [
+      {
+        "kind": "amount_outlier",
+        "weight": 0.6,
+        "label": "6x tu gasto normal aquí",
+        "evidence": {
+          "amount_cents": -41800,
+          "merchant_mean_cents": 7440,
+          "zscore": 2.22
+        }
+      },
+      {
+        "kind": "unusual_hour",
+        "weight": 0.4,
+        "label": "Compra a las 9:12 PM",
+        "evidence": {
+          "hour_of_day": 21,
+          "usual_hours": "07:00-15:00"
+        }
+      }
+    ],
+    "title": "Compra inusual en OXXO",
+    "explanation": "Gastaste $418.00 en OXXO, casi seis veces tu promedio de $74.40 en esa tienda, y a una hora en la que casi nunca compras ahí. Revísalo para descartar un cargo que no hiciste.",
+    "suggested_action": "Confirmar si reconoces la compra",
+    "detected_at": "2026-09-11T03:30:00Z",
+    "resolved_at": null,
+    "resolution": null
+  },
+  {
+    "id": "alr_0003",
+    "account_id": "acc_checking_0001",
+    "transaction_id": "txn_0042",
+    "subscription_id": "sub_0002",
+    "severity": "warning",
+    "score": 58,
+    "signals": [
+      {
+        "kind": "subscription_price_hike",
+        "weight": 1,
+        "label": "Netflix subió $40.00",
+        "evidence": {
+          "previous_amount_cents": 19900,
+          "amount_cents": 23900,
+          "percent": 0.201
+        }
+      }
+    ],
+    "title": "Netflix subió de precio",
+    "explanation": "Netflix pasó de $199.00 a $239.00 este mes, un 20% más. Son $480.00 extra al año si lo dejas igual.",
+    "suggested_action": "Comparar plan o cancelar",
+    "detected_at": "2026-09-05T09:30:00Z",
+    "resolved_at": null,
+    "resolution": null
+  }
+]

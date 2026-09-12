@@ -1,0 +1,60 @@
+[
+  {
+    "id": "cfs_0001",
+    "account_id": "acc_checking_0001",
+    "score": 671,
+    "previous_score": 648,
+    "band": "good",
+    "components": [
+      {
+        "key": "income_stability",
+        "label": "Estabilidad de ingresos",
+        "value": 92,
+        "weight": 0.25,
+        "explanation": "Nómina quincenal de $14,250.00 sin fallar en 3 meses.",
+        "points": 127
+      },
+      {
+        "key": "spending_discipline",
+        "label": "Disciplina de gasto",
+        "value": 61,
+        "weight": 0.25,
+        "explanation": "Gasto variable subió 18% contra agosto, sobre todo en delivery y compras en línea.",
+        "points": 84
+      },
+      {
+        "key": "buffer_days",
+        "label": "Colchón de días",
+        "value": 54,
+        "weight": 0.2,
+        "explanation": "Tu saldo cubre 19 días de gasto promedio; la meta sana son 30.",
+        "points": 59
+      },
+      {
+        "key": "recurring_load",
+        "label": "Carga de pagos fijos",
+        "value": 48,
+        "weight": 0.2,
+        "explanation": "Renta y suscripciones se llevan 48% de tu ingreso mensual.",
+        "points": 53
+      },
+      {
+        "key": "overdraft_risk",
+        "label": "Riesgo de sobregiro",
+        "value": 88,
+        "weight": 0.1,
+        "explanation": "Cero sobregiros y solo una comisión por manejo de cuenta en el periodo.",
+        "points": 48
+      }
+    ],
+    "explanation": "Tu salud financiera está en buen camino: el ingreso es muy estable, pero los pagos fijos se comen casi la mitad de lo que ganas y el colchón de emergencia todavía es corto. Bajar dos suscripciones y mover $500 por quincena a ahorro te sube de banda en unos dos meses.",
+    "top_actions": [
+      "Cancelar Smart Fit: no lo usas y son $5,388.00 al año.",
+      "Bajar Netflix a un plan más barato tras el aumento de $40.00.",
+      "Automatizar $500.00 por quincena a tu cuenta de ahorro para llegar a 30 días de colchón."
+    ],
+    "period_start": "2026-06-14",
+    "period_end": "2026-09-12",
+    "computed_at": "2026-09-12T15:00:00Z"
+  }
+]

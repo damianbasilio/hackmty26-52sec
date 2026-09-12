@@ -1,0 +1,12 @@
+[
+  {
+    "id": "cus_0001",
+    "auth_user_id": null,
+    "first_name": "Ana Sofía",
+    "last_name": "Treviño Garza",
+    "email": "ana.trevino@example.mx",
+    "phone": "+528181234567",
+    "nessie_customer_id": "1daa70b4a1daa70b4a1daa70",
+    "created_at": "2026-06-14T17:00:00Z"
+  }
+]

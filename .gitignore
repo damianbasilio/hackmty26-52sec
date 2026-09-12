@@ -1,0 +1,36 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+expo-env.d.ts
+
+# Native build output (development build)
+android/
+ios/
+*.ipa
+*.apk
+*.aab
+
+# Python / engine
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Generated SQL from the seeder
+db/seed.sql
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
