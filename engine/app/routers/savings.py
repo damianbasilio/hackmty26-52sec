@@ -27,7 +27,11 @@ def suggest_rules(account_id: str) -> list[dict]:
         raise HTTPException(status_code=404, detail="No transactions for this account")
 
     merchants = repository.fetch_merchants()
-    subscriptions = detect_subscriptions(account_id, transactions, merchants)
+    existing_subscriptions = repository.fetch_subscriptions(account_id)
+    existing_subscription_ids = {
+        (row["merchant_id"], row["cadence"]): row["id"] for row in existing_subscriptions
+    }
+    subscriptions = detect_subscriptions(account_id, transactions, merchants, existing_subscription_ids)
     existing_rules = repository.fetch_savings_rules(account_id)
     savings_account_id = repository.fetch_savings_account_id(account["customer_id"])
 
