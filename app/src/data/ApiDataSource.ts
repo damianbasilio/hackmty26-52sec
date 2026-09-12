@@ -17,9 +17,16 @@ import type {
   SplitRequest,
   TransactionQuery,
   Transfer,
-  TransferInput,
+  TransferDraft,
+  TransferRecipient,
 } from './DataSource';
-import { getSupabase } from './supabase';
+import { splitShareTransferId } from './DataSource';
+import { getSupabase } from '../supabase';
+
+/** Un engine colgado no debe dejar la pantalla cargando para siempre. */
+const REQUEST_TIMEOUT_MS = 10_000;
+/** Mover dinero real toca Nessie dos veces; tarda más que una lectura. */
+const TRANSFER_TIMEOUT_MS = 25_000;
 
 const CODE_TTL_MS = 15 * 60 * 1000;
 /** Colisión de llave única: otra división abierta ya tomó ese código. */
@@ -45,37 +52,79 @@ function fail(error: PostgrestError, fallback: string): never {
   throw new Error(error.message || fallback);
 }
 
+/** El engine manda su propio texto en español dentro de `detail`. */
+function readDetail(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === 'string') return detail;
+  // 422 de pydantic: lista de errores por campo, no sirve para el usuario.
+  return null;
+}
+
 /**
- * Dos transportes, a propósito. Los motores (suscripciones, anomalías, score,
- * ahorro) los calcula el engine y se leen por HTTPS. Lo que el usuario *hace*
- * —transferencias y divisiones— va directo a Supabase bajo RLS, que es donde
- * el carril A puso las policies, el RPC join_split() y las publications de
- * Realtime.
+ * Dos transportes, a propósito.
  *
- * Nunca apuntes esto a api.nessieisreal.com: es HTTP plano, iOS ATS lo bloquea,
- * y el engine es el único que puede llamar a Nessie.
+ * El dinero pasa por el engine: es el único que puede llamar a Nessie, el que
+ * aplica retiro y depósito, y el que reconcilia por `id` para que un reintento
+ * no cobre dos veces. Los motores (suscripciones, anomalías, score, ahorro) se
+ * leen por ahí mismo.
+ *
+ * Las divisiones van directo a Supabase bajo RLS, que es donde viven el RPC
+ * join_split() y las publications de Realtime: el engine no puede empujar un
+ * evento al teléfono de quien se unió.
+ *
+ * Nunca apuntes esto a api.nessieisreal.com: es HTTP plano, iOS ATS lo bloquea.
  */
 export class ApiDataSource implements DataSource {
   constructor(private readonly baseUrl: string) {}
 
-  private async get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined) url.searchParams.set(k, String(v));
+  private async request<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    params: Record<string, string | number | boolean | undefined> = {},
+    body?: unknown,
+    timeoutMs: number = REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
+    // Sin `new URL`: el polyfill de React Native resuelve rutas relativas con
+    // un endsWith que se come el path cuando la base es un túnel.
+    const query = Object.entries(params)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+      .join('&');
+    const url = `${this.baseUrl.replace(/\/+$/, '')}${path}${query ? `?${query}` : ''}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: body === undefined
+          ? { accept: 'application/json' }
+          : { accept: 'application/json', 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') {
+        throw new Error('El servidor tardó demasiado en responder. Revisa tu conexión.');
+      }
+      throw new Error('No pudimos conectarnos con el servidor. Revisa tu conexión.');
+    } finally {
+      clearTimeout(timer);
     }
-    const res = await fetch(url.toString(), { headers: { accept: 'application/json' } });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText} en ${path}`);
-    return (await res.json()) as T;
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(readDetail(payload) ?? `${res.status} ${res.statusText} en ${path}`);
+    }
+    return payload as T;
   }
 
-  private async post<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined) url.searchParams.set(k, String(v));
-    }
-    const res = await fetch(url.toString(), { method: 'POST', headers: { accept: 'application/json' } });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText} en ${path}`);
-    return (await res.json()) as T;
+  private get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
+    return this.request<T>('GET', path, params);
+  }
+
+  private post<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
+    return this.request<T>('POST', path, params);
   }
 
   getCustomer(): Promise<Customer> {
@@ -114,8 +163,69 @@ export class ApiDataSource implements DataSource {
     await this.post(`/savings/rules/${ruleId}/activate`, { destination_account_id: destinationAccountId });
   }
 
+  // El engine es quien mueve el dinero: hace el retiro y el depósito en Nessie
+  // y deja la fila en `transfers`. Es idempotente por `id`, así que reenviar el
+  // mismo borrador reconcilia en vez de cobrar dos veces.
+
+  async getRecipients(accountId: string): Promise<TransferRecipient[]> {
+    const [accounts, previous] = await Promise.all([
+      this.getAccounts(),
+      this.getTransfers(accountId),
+    ]);
+
+    const recipients: TransferRecipient[] = accounts
+      .filter((account) => account.id !== accountId)
+      .map((account) => ({
+        id: `own_${account.id}`,
+        name: account.nickname,
+        bank: 'Capital One',
+        last_four: account.last_four,
+        account_id: account.id,
+      }));
+
+    const seen = new Set(recipients.map((r) => `${r.name}|${r.last_four ?? ''}`));
+    for (const transfer of previous) {
+      const key = `${transfer.payee_name}|${transfer.payee_last_four ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      recipients.push({
+        id: `payee_${key}`,
+        name: transfer.payee_name,
+        bank: transfer.payee_bank,
+        last_four: transfer.payee_last_four,
+        account_id: transfer.payee_account_id,
+      });
+    }
+    return recipients;
+  }
+
+  getTransfers(accountId: string): Promise<Transfer[]> {
+    return this.get<Transfer[]>('/transfers', { account_id: accountId });
+  }
+
+  createTransfer(draft: TransferDraft): Promise<Transfer> {
+    return this.request<Transfer>(
+      'POST',
+      '/transfers',
+      {},
+      {
+        id: draft.id,
+        account_id: draft.accountId,
+        payee_account_id: draft.recipient.account_id,
+        payee_name: draft.recipient.name,
+        payee_bank: draft.recipient.bank,
+        payee_last_four: draft.recipient.last_four,
+        amount_cents: draft.amountCents,
+        concept: draft.concept,
+      },
+      TRANSFER_TIMEOUT_MS,
+    );
+  }
+
   // -------------------------------------------------------------------------
-  // Lo que el usuario hace. Supabase, no el engine.
+  // Divisiones. Van por Supabase, no por el engine: ahí viven el RPC
+  // join_split() y las publications de Realtime. El pago de cada parte sí
+  // vuelve al engine, por createTransfer.
   // -------------------------------------------------------------------------
 
   /** El id que ve la RLS. No sirve el de /customers/me: el engine va con service_role. */
@@ -125,37 +235,6 @@ export class ApiDataSource implements DataSource {
     if (!data) throw new Error('Tu usuario no está ligado a ningún cliente. Revisa db/link_auth_user.sql.');
     return data.id as string;
   }
-
-  async sendTransfer(input: TransferInput): Promise<Transfer> {
-    // Nace en `pending`: el engine la manda a Nessie y mueve el estado. La app
-    // no tiene policy de update aquí, y así no puede darse por pagada sola.
-    const { data, error } = await getSupabase()
-      .from('transfers')
-      .insert({
-        id: newId('trf'),
-        account_id: input.accountId,
-        payee_name: input.payeeName,
-        payee_bank: input.payeeBank ?? null,
-        payee_last_four: input.payeeLastFour ?? null,
-        amount_cents: input.amountCents,
-        concept: input.concept ?? '',
-      })
-      .select()
-      .single();
-    if (error) fail(error, 'No pudimos registrar la transferencia.');
-    return data as Transfer;
-  }
-
-  async getTransfers(accountId: string): Promise<Transfer[]> {
-    const { data, error } = await getSupabase()
-      .from('transfers')
-      .select()
-      .eq('account_id', accountId)
-      .order('created_at', { ascending: false });
-    if (error) fail(error, 'No pudimos leer tus transferencias.');
-    return (data ?? []) as Transfer[];
-  }
-
   async createSplit({ accountId, totalCents, title }: CreateSplitInput): Promise<Split> {
     if (totalCents <= 0) throw new Error('El total de la división tiene que ser mayor a cero.');
     const supabase = getSupabase();
@@ -260,9 +339,19 @@ export class ApiDataSource implements DataSource {
     if (!person) throw new Error('No encontramos tu parte en esta división.');
     if (person.paid) return split;
 
-    const transfer = await this.sendTransfer({
+    // El id sale del participante, no de un random: si la red se cae entre el
+    // envío y el `paid_at` de abajo, el reintento manda exactamente la misma
+    // transferencia y el engine la reconcilia en vez de cobrar la parte otra vez.
+    const transfer = await this.createTransfer({
+      id: splitShareTransferId(participantId),
       accountId: split.request.account_id,
-      payeeName: split.request.title || 'División de gasto',
+      recipient: {
+        id: `split_${split.request.id}`,
+        name: split.request.title || 'División de gasto',
+        bank: null,
+        last_four: null,
+        account_id: null,
+      },
       amountCents: person.share_cents,
       concept: `Mi parte de la división ${split.request.code}`,
     });

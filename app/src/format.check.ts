@@ -1,6 +1,7 @@
 // Run: node app/src/format.check.ts   (Node strips the types)
 import assert from 'node:assert/strict';
 
+import { CHUNK_SIZE, joinChunks, splitIntoChunks } from './chunk.ts';
 import { sharesFor } from './data/shares.ts';
 import { moneyInputToCents, normalizeMoneyInput } from './moneyInput.ts';
 import {
@@ -45,6 +46,18 @@ assert.equal(moneyInputToCents('14250.00'), 1425000);
 assert.ok(Number.isInteger(moneyInputToCents('0.1')));
 assert.equal(formatCents(moneyInputToCents(normalizeMoneyInput('14,250.005'))), '$14,250.00');
 
+// La sesion de Supabase se guarda partida en secure-store. Si partir y volver a
+// juntar no es exacto, el usuario pierde la sesion sin que nada truene.
+const session = 'a'.repeat(CHUNK_SIZE * 2 + 137);
+assert.equal(splitIntoChunks(session).length, 3);
+assert.equal(joinChunks(splitIntoChunks(session)), session);
+assert.equal(splitIntoChunks('').length, 1);
+assert.equal(joinChunks(splitIntoChunks('')), '');
+assert.equal(splitIntoChunks('x'.repeat(CHUNK_SIZE)).length, 1);
+assert.equal(splitIntoChunks('x'.repeat(CHUNK_SIZE + 1)).length, 2);
+// Un pedazo perdido no debe devolver una sesion a medias.
+assert.equal(joinChunks(['abc', null, 'def']), null);
+assert.equal(joinChunks([]), null);
 // Repartir una cuenta no puede perder ni inventar centavos, y el orden importa:
 // el sobrante va a quien entro primero, igual que rebalance_split() en la base.
 assert.deepEqual(sharesFor(1000, 3), [334, 333, 333]);

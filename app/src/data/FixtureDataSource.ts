@@ -24,8 +24,10 @@ import type {
   SplitRequest,
   TransactionQuery,
   Transfer,
-  TransferInput,
+  TransferDraft,
+  TransferRecipient,
 } from './DataSource';
+import { splitShareTransferId } from './DataSource';
 import { sharesFor } from './shares';
 
 const customers = customersJson as Customer[];
@@ -39,6 +41,7 @@ const rules = rulesJson as SavingsRule[];
 /** Mutations only live in memory; a reload resets them. Good enough for the demo. */
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
 const activated = new Set<string>();
+const sentTransfers: Transfer[] = [];
 
 const CODE_TTL_MS = 15 * 60 * 1000;
 
@@ -159,28 +162,59 @@ export class FixtureDataSource implements DataSource {
     activated.add(ruleId);
   }
 
-  async sendTransfer(input: TransferInput): Promise<Transfer> {
+  async getRecipients(accountId: string): Promise<TransferRecipient[]> {
+    const own: TransferRecipient[] = accounts
+      .filter((account) => account.id !== accountId)
+      .map((account) => ({
+        id: `own_${account.id}`,
+        name: account.nickname,
+        bank: 'Capital One',
+        last_four: account.last_four,
+        account_id: account.id,
+      }));
+    const seen = new Set(own.map((r) => `${r.name}|${r.last_four ?? ''}`));
+    for (const transfer of sentTransfers.filter((t) => t.account_id === accountId)) {
+      const key = `${transfer.payee_name}|${transfer.payee_last_four ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      own.push({
+        id: `payee_${key}`,
+        name: transfer.payee_name,
+        bank: transfer.payee_bank,
+        last_four: transfer.payee_last_four,
+        account_id: transfer.payee_account_id,
+      });
+    }
+    return own;
+  }
+
+  async getTransfers(accountId: string): Promise<Transfer[]> {
+    return sentTransfers.filter((transfer) => transfer.account_id === accountId);
+  }
+
+  async createTransfer(draft: TransferDraft): Promise<Transfer> {
+    // Misma llave, misma transferencia: un reintento no cobra de nuevo.
+    const already = sentTransfers.find((transfer) => transfer.id === draft.id);
+    if (already) return already;
     const now = new Date().toISOString();
     const transfer: Transfer = {
-      id: nextId('trf'),
-      account_id: input.accountId,
-      payee_name: input.payeeName,
-      payee_bank: input.payeeBank ?? null,
-      payee_last_four: input.payeeLastFour ?? null,
-      amount_cents: input.amountCents,
-      concept: input.concept ?? '',
-      // Nadie mueve el estado después en demo, así que nace completada.
+      id: draft.id,
+      account_id: draft.accountId,
+      payee_account_id: draft.recipient.account_id,
+      payee_name: draft.recipient.name,
+      payee_bank: draft.recipient.bank,
+      payee_last_four: draft.recipient.last_four,
+      amount_cents: draft.amountCents,
+      concept: draft.concept,
+      // El engine real aplica el retiro y el depósito de una vez; los fixtures
+      // imitan ese resultado para que la pantalla se vea igual sin backend.
       status: 'completed',
       failure_reason: null,
       created_at: now,
       completed_at: now,
     };
-    transfers.unshift(transfer);
+    sentTransfers.unshift(transfer);
     return transfer;
-  }
-
-  async getTransfers(accountId: string): Promise<Transfer[]> {
-    return transfers.filter((transfer) => transfer.account_id === accountId);
   }
 
   async createSplit({ accountId, totalCents, title }: CreateSplitInput): Promise<Split> {
@@ -247,9 +281,16 @@ export class FixtureDataSource implements DataSource {
     const person = people.find((candidate) => candidate.id === participantId);
     if (!person) throw new Error('No encontramos tu parte en esta división.');
     if (!person.paid) {
-      const transfer = await this.sendTransfer({
+      const transfer = await this.createTransfer({
+        id: splitShareTransferId(participantId),
         accountId: request.account_id,
-        payeeName: request.title || 'División de gasto',
+        recipient: {
+          id: `split_${request.id}`,
+          name: request.title || 'División de gasto',
+          bank: null,
+          last_four: null,
+          account_id: null,
+        },
         amountCents: person.share_cents,
         concept: `Mi parte de la división ${request.code}`,
       });

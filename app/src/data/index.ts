@@ -11,11 +11,13 @@ export type {
   SplitStatus,
   TransactionQuery,
   Transfer,
-  TransferInput,
+  TransferDraft,
+  TransferRecipient,
   TransferStatus,
 } from './DataSource';
 export { ApiDataSource } from './ApiDataSource';
 export { FixtureDataSource } from './FixtureDataSource';
+export { newTransferId, splitShareTransferId } from './DataSource';
 export { sharesFor } from './shares';
 
 /** `fixtures` (default) or `api`. The only switch between mock and real data. */
