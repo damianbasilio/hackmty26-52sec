@@ -6,7 +6,7 @@ import { formatCents, formatShortDate } from '@/src/format';
 
 export const CATEGORY_LABELS: Record<MerchantCategory, string> = {
   groceries: 'Súper',
-  convenience: 'Tiendas de conveniencia',
+  convenience: 'Conveniencia',
   restaurants: 'Restaurantes',
   delivery: 'A domicilio',
   transport: 'Transporte',

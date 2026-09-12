@@ -131,7 +131,7 @@ function TransactionRow({ txn }: { txn: EnrichedTransaction }) {
           ) : null}
         </Box>
       </Box>
-      <Text style={[styles.txnAmount, { color: incoming ? palette.positive : undefined }]}>
+      <Text style={[styles.txnAmount, incoming ? { color: palette.positive } : null]}>
         {formatSignedCents(txn.amount_cents)}
       </Text>
     </Box>

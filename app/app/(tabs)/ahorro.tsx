@@ -140,7 +140,7 @@ function RuleCard({
           <Text style={[styles.ruleMetricLabel, { color: palette.muted }]}>
             {suggested ? 'Ahorro estimado al año' : 'Ahorrado hasta hoy'}
           </Text>
-          <Text style={[styles.ruleMetric, { color: suggested ? undefined : palette.positive }]}>
+          <Text style={[styles.ruleMetric, suggested ? null : { color: palette.positive }]}>
             {formatCents(
               suggested ? rule.projected_annual_savings_cents : rule.saved_to_date_cents
             )}
