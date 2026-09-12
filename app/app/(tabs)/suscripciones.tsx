@@ -1,5 +1,3 @@
-import type { Subscription } from '@contracts/types';
-import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View as RawView } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
@@ -9,58 +7,35 @@ import { SubscriptionCard } from '@/components/SubscriptionCard';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { EmptyState } from '@/components/ui';
+import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
-
-type State =
-  | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'ready'; subscriptions: Subscription[] };
 
 const LOAD_ERROR =
   'Necesitamos tus movimientos para encontrar cargos recurrentes y ahora no pudimos leerlos. Revisa tu conexión e inténtalo de nuevo.';
 
 export default function SuscripcionesScreen() {
   const palette = usePalette();
-  const [state, setState] = useState<State>({ kind: 'loading' });
-  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const accounts = await dataSource.getAccounts();
-      const account = accounts.find((a) => a.type === 'checking') ?? accounts[0];
-      setState({ kind: 'ready', subscriptions: await dataSource.getSubscriptions(account.id) });
-    } catch (e) {
-      setState({ kind: 'error', message: (e as Error).message });
-    }
-  }, []);
+  const { data, error, loading, reload } = useAsync(async () => {
+    const accounts = await dataSource.getAccounts();
+    const checking = accounts.find((a) => a.type === 'checking') ?? accounts[0];
+    if (!checking) throw new Error('No hay cuentas disponibles.');
+    return dataSource.getSubscriptions(checking.id);
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // pantalla completa solo en la primera carga; al refrescar se queda el contenido
+  if (loading && !data) return <LoadingState label="Buscando tus cargos recurrentes…" />;
+  if (error || !data) return <ErrorState message={LOAD_ERROR} onRetry={reload} />;
 
-  const retry = useCallback(() => {
-    setState({ kind: 'loading' });
-    void load();
-  }, [load]);
-
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
-  if (state.kind === 'loading') return <LoadingState label="Buscando tus cargos recurrentes…" />;
-  if (state.kind === 'error') return <ErrorState message={LOAD_ERROR} onRetry={retry} />;
-
-  const { subscriptions } = state;
+  const subscriptions = data;
 
   if (subscriptions.length === 0) {
     return (
       <ScrollView
         style={{ backgroundColor: palette.background }}
         contentContainerStyle={styles.emptyContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.accent} />}>
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
         <EmptyState
           title="Todavía no vemos suscripciones"
           hint="Marcamos un cargo como suscripción cuando el mismo comercio te cobra varias veces con la misma cadencia. Tus movimientos aún no repiten ese patrón, así que preferimos no adivinar. En cuanto se repita, aparece aquí."
@@ -79,7 +54,7 @@ export default function SuscripcionesScreen() {
     <ScrollView
       style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.accent} />}>
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
       <Card>
         <Text style={[styles.eyebrow, { color: palette.muted }]}>Gasto fijo detectado</Text>
         <Text style={styles.total}>{formatCents(annualTotal)}</Text>
