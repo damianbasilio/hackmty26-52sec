@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import repository
 from ..anomalies_engine import scan_anomalies
-from ..subscriptions_engine import detect_subscriptions
+from ..bills import detect_with_bills
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
 
@@ -24,12 +24,17 @@ def scan(account_id: str) -> list[dict]:
     if not transactions:
         raise HTTPException(status_code=404, detail="No transactions for this account")
 
+    now = datetime.now(timezone.utc)
     merchants = repository.fetch_merchants()
     existing_subscriptions = repository.fetch_subscriptions(account_id)
     existing_subscription_ids = {
         (row["merchant_id"], row["cadence"]): row["id"] for row in existing_subscriptions
     }
-    subscriptions = detect_subscriptions(account_id, transactions, merchants, existing_subscription_ids)
+    # Same detection /subscriptions/detect persists, so the upsert below
+    # doesn't overwrite a bill-confirmed explanation with an inferred one.
+    subscriptions = detect_with_bills(
+        account_id, transactions, merchants, existing_subscription_ids, now.date()
+    )
     # A price-hike alert links subscription_id by FK, so whatever we just
     # detected has to actually exist in the table — don't assume
     # /subscriptions/detect already ran.
@@ -50,7 +55,7 @@ def scan(account_id: str) -> list[dict]:
         transactions,
         merchants,
         subscriptions,
-        datetime.now(timezone.utc),
+        now,
         existing_ids,
         resolved_transaction_ids,
     )
