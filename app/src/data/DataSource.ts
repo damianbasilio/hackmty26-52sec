@@ -140,6 +140,8 @@ export interface DataSource {
   getSavingsRules(accountId: string): Promise<SavingsRule[]>;
   resolveAlert(alertId: string, resolution: NonNullable<AnomalyAlert['resolution']>): Promise<void>;
   activateSavingsRule(ruleId: string, destinationAccountId: string): Promise<void>;
+  /** Opens one more savings account for the current customer, starting at zero. */
+  createSavingsAccount(nickname: string): Promise<Account>;
   /** Own accounts plus whoever this account has already paid. */
   getRecipients(accountId: string): Promise<TransferRecipient[]>;
   getTransfers(accountId: string): Promise<Transfer[]>;

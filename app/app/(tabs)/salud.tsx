@@ -1,6 +1,7 @@
+import { SymbolView } from 'expo-symbols';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { Card } from '@/components/Card';
 import { MotionPressable, Reveal } from '@/components/Motion';
@@ -10,18 +11,51 @@ import { ScoreGauge } from '@/components/ScoreGauge';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
-import { SectionTitle } from '@/components/ui';
+import { Chevron, Collapsible, SectionTitle } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatLongDay } from '@/src/format';
+
+type ActionTarget = {
+  pathname: '/suscripciones' | '/ahorro' | '/movimientos';
+  params?: Record<string, string>;
+  label: string;
+  symbol: { ios: string; android: string; web: string };
+};
 
 function splitAction(action: string): { title: string; detail: string } {
   const [title, ...rest] = action.split(':');
   return { title, detail: rest.join(':').trim() };
 }
 
+/** Lleva cada acción a la pantalla donde se resuelve. El texto viene del engine, así que se lee por palabras clave. */
+function actionTarget(action: string): ActionTarget {
+  const text = action.toLowerCase();
+  if (/suscrip|cancelar|netflix|spotify|plan |gimnasio|smart fit|streaming/.test(text)) {
+    return {
+      pathname: '/suscripciones',
+      label: 'Revisar suscripciones',
+      symbol: { ios: 'arrow.triangle.2.circlepath', android: 'autorenew', web: 'autorenew' },
+    };
+  }
+  if (/ahorr|apart|automatiz|colch|tope|l[ií]mite|presupuesto/.test(text)) {
+    return {
+      pathname: '/ahorro',
+      label: 'Ir a ahorro',
+      symbol: { ios: 'banknote.fill', android: 'savings', web: 'savings' },
+    };
+  }
+  return {
+    pathname: '/movimientos',
+    params: { filter: 'expenses' },
+    label: 'Ver mis gastos',
+    symbol: { ios: 'list.bullet', android: 'list', web: 'list' },
+  };
+}
+
 export default function SaludScreen() {
   const palette = usePalette();
+  const router = useRouter();
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showMoreActions, setShowMoreActions] = useState(false);
   const { data, error, loading, reload } = useAsync(async () => {
@@ -35,8 +69,15 @@ export default function SaludScreen() {
   if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
   const score = data;
-  const firstAction = score.top_actions[0] ? splitAction(score.top_actions[0]) : null;
-  const remainingActions = score.top_actions.slice(1);
+  const [firstAction, ...remainingActions] = score.top_actions;
+
+  function openAction(action: string) {
+    const target = actionTarget(action);
+    router.push({
+      pathname: target.pathname,
+      params: { ...target.params, at: String(Date.now()) },
+    } as never);
+  }
 
   return (
     <PremiumSurface>
@@ -48,7 +89,7 @@ export default function SaludScreen() {
           <Text style={styles.title}>Salud financiera</Text>
         </Reveal>
 
-        <Reveal delay={55}>
+        <Reveal delay={60}>
           <Card style={styles.scoreCard}>
             <ScoreGauge score={score} />
             <Text style={[styles.scoreSummary, { color: palette.ink }]}>
@@ -57,8 +98,7 @@ export default function SaludScreen() {
           </Card>
         </Reveal>
 
-        <Animated.View
-          layout={LinearTransition.springify().damping(24).stiffness(220).reduceMotion(ReduceMotion.System)}>
+        <Reveal delay={120}>
           <Card style={styles.disclosureCard}>
             <MotionPressable
               accessibilityRole="button"
@@ -66,81 +106,85 @@ export default function SaludScreen() {
               onPress={() => setShowBreakdown((current) => !current)}
               style={styles.disclosure}>
               <View style={[styles.disclosureIcon, { backgroundColor: palette.surfaceSage }]}>
-                <Text style={[styles.disclosureIconText, { color: palette.muted }]}>▤</Text>
+                <SymbolView name={{ ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' }} tintColor={palette.muted} size={18} />
               </View>
-              <Text style={styles.disclosureTitle}>Ver cómo se calcula</Text>
-              <Text style={[styles.chevron, { color: palette.muted }]}>{showBreakdown ? '⌄' : '›'}</Text>
+              <Text style={styles.disclosureTitle}>{showBreakdown ? 'Ocultar el cálculo' : 'Ver cómo se calcula'}</Text>
+              <Chevron direction={showBreakdown ? 'up' : 'down'} />
             </MotionPressable>
 
-            {showBreakdown && (
-              <Animated.View
-                entering={FadeIn.duration(200).reduceMotion(ReduceMotion.System)}
-                style={[styles.breakdown, { borderColor: palette.border }]}>
+            <Collapsible open={showBreakdown}>
+              <View style={[styles.breakdown, { borderColor: palette.border }]}>
                 <Text style={[styles.fullExplanation, { color: palette.muted }]}>{score.explanation}</Text>
                 <ScoreBreakdown components={score.components} />
                 <Text style={[styles.period, { color: palette.muted }]}>
                   Calculado del {formatLongDay(score.period_start)} al {formatLongDay(score.period_end, true)}.
                 </Text>
-              </Animated.View>
-            )}
+              </View>
+            </Collapsible>
           </Card>
-        </Animated.View>
+        </Reveal>
 
-        {firstAction && (
-          <View style={styles.section}>
+        {firstAction ? (
+          <Reveal delay={180} style={styles.section}>
             <SectionTitle>Siguiente mejor acción</SectionTitle>
-            <Card tone="sage" style={styles.actionCard}>
-              <View style={[styles.actionIcon, { backgroundColor: palette.dangerSoft }]}>
-                <Text style={[styles.actionIconText, { color: palette.danger }]}>⊘</Text>
-              </View>
-              <View style={styles.actionCopy}>
-                <Text style={styles.actionTitle}>{firstAction.title}</Text>
-                {firstAction.detail ? (
-                  <Text style={[styles.actionDetail, { color: palette.muted }]}>{firstAction.detail}</Text>
-                ) : null}
-              </View>
-              <Text style={[styles.chevron, { color: palette.muted }]}>›</Text>
-            </Card>
+            <ActionCard action={firstAction} featured onPress={() => openAction(firstAction)} />
 
-            {remainingActions.length > 0 && (
+            {remainingActions.length > 0 ? (
               <MotionPressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showMoreActions }}
                 onPress={() => setShowMoreActions((current) => !current)}
                 style={[styles.moreButton, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-                <Text style={styles.moreLabel}>
-                  {showMoreActions ? 'Ocultar acciones' : `Ver ${remainingActions.length} acciones más`}
-                </Text>
-                <Text style={[styles.chevron, { color: palette.muted }]}>{showMoreActions ? '⌃' : '›'}</Text>
+                <Text style={styles.moreLabel}>{showMoreActions ? 'Ocultar acciones' : 'Ver otras acciones'}</Text>
+                <Chevron direction={showMoreActions ? 'up' : 'down'} />
               </MotionPressable>
-            )}
+            ) : null}
 
-            {showMoreActions && (
-              <Animated.View
-                entering={FadeIn.duration(200).reduceMotion(ReduceMotion.System)}
-                style={styles.moreActions}>
-                {remainingActions.map((action, index) => {
-                  const item = splitAction(action);
-                  return (
-                    <Card key={action} tone="sage" style={styles.secondaryAction}>
-                      <View style={[styles.rank, { backgroundColor: palette.accentSoft }]}>
-                        <Text style={[styles.rankText, { color: palette.accentDeep }]}>{index + 2}</Text>
-                      </View>
-                      <View style={styles.actionCopy}>
-                        <Text style={styles.actionTitle}>{item.title}</Text>
-                        {item.detail ? (
-                          <Text style={[styles.actionDetail, { color: palette.muted }]}>{item.detail}</Text>
-                        ) : null}
-                      </View>
-                    </Card>
-                  );
-                })}
-              </Animated.View>
-            )}
-          </View>
-        )}
+            <Collapsible open={showMoreActions}>
+              <View style={styles.moreActions}>
+                {remainingActions.map((action, index) => (
+                  <Reveal key={action} delay={index * 60}>
+                    <ActionCard action={action} onPress={() => openAction(action)} />
+                  </Reveal>
+                ))}
+              </View>
+            </Collapsible>
+          </Reveal>
+        ) : null}
       </ScrollView>
     </PremiumSurface>
+  );
+}
+
+function ActionCard({ action, featured = false, onPress }: { action: string; featured?: boolean; onPress: () => void }) {
+  const palette = usePalette();
+  const { title, detail } = splitAction(action);
+  const target = actionTarget(action);
+  return (
+    <MotionPressable accessibilityHint={target.label} accessibilityRole="button" onPress={onPress} pressedScale={0.985}>
+      <Card tone="sage" style={styles.actionCard}>
+        <View style={styles.actionHead}>
+          <View
+            style={[
+              featured ? styles.actionIcon : styles.actionIconSmall,
+              { backgroundColor: featured ? palette.dangerSoft : palette.accentSoft },
+            ]}>
+            <SymbolView
+              name={target.symbol as never}
+              tintColor={featured ? palette.danger : palette.accent}
+              size={featured ? 24 : 18}
+            />
+          </View>
+          <View style={styles.actionCopy}>
+            <Text style={featured ? styles.actionTitle : styles.actionTitleSmall}>{title}</Text>
+            {detail ? <Text style={[styles.actionDetail, { color: palette.muted }]}>{detail}</Text> : null}
+          </View>
+        </View>
+        <View style={[styles.resolvePill, { backgroundColor: palette.primary }]}>
+          <Text style={[styles.resolveLabel, { color: palette.onPrimary }]}>{target.label}</Text>
+        </View>
+      </Card>
+    </MotionPressable>
   );
 }
 
@@ -152,23 +196,22 @@ const styles = StyleSheet.create({
   disclosureCard: { padding: 10, gap: 0 },
   disclosure: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
   disclosureIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  disclosureIconText: { fontSize: 18, fontWeight: '600' },
   disclosureTitle: { flex: 1, fontSize: 15, fontWeight: '600' },
-  chevron: { width: 16, fontSize: 25, fontWeight: '300', textAlign: 'center' },
-  breakdown: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8, paddingTop: 18, marginTop: 8, gap: 20 },
+  breakdown: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8, paddingTop: 18, paddingBottom: 8, marginTop: 8, gap: 20 },
   fullExplanation: { fontSize: 13, lineHeight: 19 },
   period: { fontSize: 11, lineHeight: 16 },
   section: { gap: 12 },
-  actionCard: { flexDirection: 'row', alignItems: 'center', gap: 13, minHeight: 106 },
+  actionCard: { gap: 14 },
+  actionHead: { flexDirection: 'row', alignItems: 'center', gap: 13 },
   actionIcon: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
-  actionIconText: { fontSize: 30, fontWeight: '500' },
+  actionIconSmall: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   actionCopy: { flex: 1, gap: 5 },
   actionTitle: { fontSize: 17, lineHeight: 22, fontWeight: '700', letterSpacing: -0.25 },
+  actionTitleSmall: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
   actionDetail: { fontSize: 13, lineHeight: 18 },
+  resolvePill: { minHeight: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  resolveLabel: { fontSize: 14, fontWeight: '700' },
   moreButton: { minHeight: 58, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 },
   moreLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
-  moreActions: { gap: 10 },
-  secondaryAction: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  rank: { width: 34, height: 34, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  rankText: { fontSize: 13, fontWeight: '700' },
+  moreActions: { gap: 10, paddingBottom: 2 },
 });

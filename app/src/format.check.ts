@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { CHUNK_SIZE, joinChunks, splitIntoChunks } from './chunk.ts';
 import { sharesFor } from './data/shares.ts';
-import { moneyInputToCents, normalizeMoneyInput } from './moneyInput.ts';
+import { moneyInputToCents, normalizeMoneyInput, withCents } from './moneyInput.ts';
+import { bytesToHex, secondsLeft, sha1, totp } from './totp.ts';
 import {
   daysFromToday,
   formatCents,
@@ -36,6 +37,14 @@ assert.equal(normalizeMoneyInput('00012'), '12');
 assert.equal(normalizeMoneyInput('1.2345'), '1.23');
 assert.equal(normalizeMoneyInput('.5'), '0.5');
 assert.equal(normalizeMoneyInput('12.'), '12.');
+// Teclado decimal en otra región: la coma sola con centavos es el decimal.
+assert.equal(normalizeMoneyInput('150,5'), '150.5');
+assert.equal(normalizeMoneyInput('150,'), '150.');
+assert.equal(normalizeMoneyInput('14,250'), '14250');
+assert.equal(withCents('150'), '150.00');
+assert.equal(withCents('1.5'), '1.50');
+assert.equal(withCents('12.'), '12.00');
+assert.equal(withCents(''), '');
 
 assert.equal(moneyInputToCents(''), 0);
 assert.equal(moneyInputToCents('0'), 0);
@@ -74,5 +83,17 @@ for (const total of [1, 7, 99, 1425000, 123456789]) {
     assert.ok(parts.every(Number.isInteger));
   }
 }
+
+// Clave dinámica: vectores de RFC 3174 y RFC 6238. Si SHA-1 falla por un bit,
+// la clave cambia sin avisar.
+const ascii = (text: string) => Uint8Array.from(text, (char) => char.charCodeAt(0));
+assert.equal(bytesToHex(sha1(ascii('abc'))), 'a9993e364706816aba3e25717850c26c9cd0d89d');
+assert.equal(bytesToHex(sha1(ascii(''))), 'da39a3ee5e6b4b0d3255bfef95601890afd80709');
+const rfcSecret = ascii('12345678901234567890');
+assert.equal(totp(rfcSecret, 59_000, 30, 8), '94287082');
+assert.equal(totp(rfcSecret, 1111111109_000, 30, 8), '07081804');
+assert.equal(totp(rfcSecret, 20000000000_000, 30, 8), '65353130');
+assert.equal(secondsLeft(59_000), 1);
+assert.equal(secondsLeft(60_000), 30);
 
 console.log('format ok');

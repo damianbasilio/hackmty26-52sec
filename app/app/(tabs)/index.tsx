@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View as Box } from 'react-native';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
@@ -16,7 +16,7 @@ import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
 import { localMonthKey } from '@/components/display';
 import { usePalette, type Palette } from '@/components/palette';
-import { SectionTitle } from '@/components/ui';
+import { Chevron, SectionTitle } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents, formatMonthName } from '@/src/format';
@@ -44,7 +44,7 @@ function severityTone(palette: Palette, severity: AnomalySeverity) {
 export default function InicioScreen() {
   const palette = usePalette();
   const router = useRouter();
-  const { lock } = useAuth();
+  const { lock, firstName } = useAuth();
   const { outgoingCents } = useBanking();
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
@@ -52,7 +52,7 @@ export default function InicioScreen() {
     const accounts = await dataSource.getAccounts();
     const checking = accounts.find((account) => account.type === 'checking') ?? accounts[0];
     if (!checking) throw new Error('No hay cuentas disponibles.');
-    const savings = accounts.find((account) => account.type === 'savings') ?? null;
+    const savings = accounts.filter((account) => account.type === 'savings');
     const [customer, transactions, alerts] = await Promise.all([
       dataSource.getCustomer(),
       dataSource.getTransactions({ accountId: checking.id }),
@@ -71,6 +71,12 @@ export default function InicioScreen() {
   const featuredAlert = openAlerts[0] ?? null;
   const remainingAlerts = openAlerts.slice(1);
   const availableBalanceCents = Math.max(0, checking.balance_cents - outgoingCents);
+  const savingsTotal = savings.reduce((sum, account) => sum + account.balance_cents, 0);
+
+  // `at` cambia en cada toque: la pestaña sigue montada y sin él no vería los mismos filtros dos veces.
+  function openMovements(params: Record<string, string>) {
+    router.push({ pathname: '/movimientos', params: { ...params, at: String(Date.now()) } } as never);
+  }
 
   return (
     <PremiumSurface>
@@ -82,25 +88,32 @@ export default function InicioScreen() {
         }>
         <Reveal delay={20}>
           <Text style={[styles.hello, { color: palette.muted }]}>Hola,</Text>
-          <Text style={styles.name}>{customer.first_name}</Text>
+          <Text style={styles.name}>{firstName ?? customer.first_name}</Text>
         </Reveal>
 
         <Reveal delay={80}>
           <HeroCard>
             <Box style={styles.heroTop}>
-              <Text style={styles.heroLabel}>
+              <Text numberOfLines={1} style={styles.heroLabel}>
                 {checking.nickname} ·· {checking.last_four}
               </Text>
-              <Text style={styles.heroAmount}>{formatCents(availableBalanceCents)}</Text>
+              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>{formatCents(availableBalanceCents)}</Text>
             </Box>
-            {savings ? (
-              <Box style={styles.savingsStrip}>
+            {savings.length > 0 ? (
+              <MotionPressable
+                accessibilityHint="Abre tus cuentas de ahorro"
+                accessibilityRole="button"
+                onPress={() => router.push('/ahorro')}
+                style={styles.savingsStrip}>
                 <Box style={styles.savingsIcon}>
-                  <Text style={styles.savingsIconText}>↗</Text>
+                  <SymbolView name={{ ios: 'arrow.up.right', android: 'north_east', web: 'north_east' }} tintColor="#FFFFFF" size={14} />
                 </Box>
-                <Text numberOfLines={1} style={styles.savingsName}>{savings.nickname}</Text>
-                <Text style={styles.savingsAmount}>{formatCents(savings.balance_cents)}</Text>
-              </Box>
+                <Text numberOfLines={1} style={styles.savingsName}>
+                  {savings.length === 1 ? savings[0].nickname : `Ahorro · ${savings.length} cuentas`}
+                </Text>
+                <Text style={styles.savingsAmount}>{formatCents(savingsTotal)}</Text>
+                <Chevron color="rgba(255,255,255,0.8)" size={12} />
+              </MotionPressable>
             ) : null}
           </HeroCard>
         </Reveal>
@@ -150,9 +163,17 @@ export default function InicioScreen() {
                 />
                 <Text style={[styles.securityLabel, { color: palette.muted }]}>Sesión protegida</Text>
               </Box>
-              <MotionPressable accessibilityRole="button" onPress={lock} style={styles.lockButton}>
-                <Text style={[styles.lockLabel, { color: palette.accent }]}>Bloquear</Text>
-              </MotionPressable>
+              <Box style={styles.securityButtons}>
+                <MotionPressable
+                  accessibilityRole="button"
+                  onPress={() => router.push('/clave-dinamica' as never)}
+                  style={styles.lockButton}>
+                  <Text style={[styles.lockLabel, { color: palette.accent }]}>Clave dinámica</Text>
+                </MotionPressable>
+                <MotionPressable accessibilityRole="button" onPress={lock} style={styles.lockButton}>
+                  <Text style={[styles.lockLabel, { color: palette.accent }]}>Bloquear</Text>
+                </MotionPressable>
+              </Box>
             </Box>
           </Card>
         </Reveal>
@@ -178,21 +199,24 @@ export default function InicioScreen() {
         ) : null}
 
         <Reveal delay={190}>
-            <MotionPressable accessibilityRole="button" onPress={() => router.push('/movimientos')}>
-              <Card style={styles.monthCard}>
-                <Box style={[styles.monthIcon, { backgroundColor: palette.surfaceSage }]}>
-                  <Text style={[styles.monthIconText, { color: palette.muted }]}>▤</Text>
-                </Box>
-                <Box style={styles.monthCopy}>
-                  <Text style={styles.monthLabel}>Gasto de {formatMonthName(month.key)}</Text>
-                  <Text style={[styles.monthMeta, { color: palette.muted }]}>
-                    {month.count} {month.count === 1 ? 'movimiento' : 'movimientos'}
-                  </Text>
-                </Box>
-                <Text style={styles.monthAmount}>{formatCents(month.spent)}</Text>
-                <Text style={[styles.monthChevron, { color: palette.muted }]}>›</Text>
-              </Card>
-            </MotionPressable>
+          <MotionPressable
+            accessibilityHint="Abre tus gastos del mes en movimientos"
+            accessibilityRole="button"
+            onPress={() => openMovements({ filter: 'expenses', month: month.key })}>
+            <Card style={styles.monthCard}>
+              <Box style={[styles.monthIcon, { backgroundColor: palette.surfaceSage }]}>
+                <SymbolView name={{ ios: 'creditcard.fill', android: 'credit_card', web: 'credit_card' }} tintColor={palette.muted} size={18} />
+              </Box>
+              <Box style={styles.monthCopy}>
+                <Text style={styles.monthLabel}>Gastos de {formatMonthName(month.key)}</Text>
+                <Text style={[styles.monthMeta, { color: palette.muted }]}>
+                  {month.count} {month.count === 1 ? 'movimiento' : 'movimientos'}
+                </Text>
+              </Box>
+              <Text style={styles.monthAmount}>{formatCents(month.spent)}</Text>
+              <Chevron />
+            </Card>
+          </MotionPressable>
         </Reveal>
 
         {remainingAlerts.length > 0 ? (
@@ -213,7 +237,12 @@ export default function InicioScreen() {
         <Reveal delay={250} style={styles.section}>
           <SectionTitle
             action={
-              <Link href="/movimientos" style={[styles.link, { color: palette.accent }]}>Ver todos</Link>
+              <MotionPressable
+                accessibilityRole="link"
+                hitSlop={8}
+                onPress={() => openMovements({ filter: 'expenses', month: month.key })}>
+                <Text style={[styles.link, { color: palette.accent }]}>Ver todos</Text>
+              </MotionPressable>
             }>
             Donde más gastas
           </SectionTitle>
@@ -222,10 +251,17 @@ export default function InicioScreen() {
               <Text style={[styles.alertBody, { color: palette.muted }]}>Todavía no hay compras este mes.</Text>
             ) : (
               month.topMerchants.map((merchant) => (
-                <Box key={merchant.name} style={styles.merchantRow}>
+                <MotionPressable
+                  key={merchant.name}
+                  accessibilityHint={`Ver los movimientos de ${merchant.name}`}
+                  accessibilityRole="button"
+                  onPress={() => openMovements({ q: merchant.name, month: month.key })}
+                  pressedScale={0.985}
+                  style={styles.merchantRow}>
                   <Box style={styles.merchantHead}>
                     <Text numberOfLines={1} style={styles.merchantName}>{merchant.name}</Text>
                     <Text style={styles.merchantAmount}>{formatCents(merchant.spent)}</Text>
+                    <Chevron size={12} />
                   </Box>
                   <Box style={[styles.barTrack, { backgroundColor: palette.track }]}>
                     <Box
@@ -238,7 +274,7 @@ export default function InicioScreen() {
                       ]}
                     />
                   </Box>
-                </Box>
+                </MotionPressable>
               ))
             )}
           </Card>
@@ -378,7 +414,6 @@ const styles = StyleSheet.create({
   heroAmount: { color: '#FFFFFF', fontSize: 42, lineHeight: 48, fontWeight: '700', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
   savingsStrip: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.28)' },
   savingsIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)' },
-  savingsIconText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
   savingsName: { flex: 1, color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
   savingsAmount: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   moneyActionsCard: { padding: 7, gap: 6 },
@@ -390,6 +425,7 @@ const styles = StyleSheet.create({
   moneyActionHint: { fontSize: 10.5 },
   securityStatus: { minHeight: 38, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'transparent' },
   securityCopy: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'transparent' },
+  securityButtons: { flexDirection: 'row', alignItems: 'center' },
   securityLabel: { fontSize: 11.5, fontWeight: '600' },
   lockButton: { minHeight: 34, paddingHorizontal: 8, justifyContent: 'center' },
   lockLabel: { fontSize: 12, fontWeight: '700' },
@@ -416,15 +452,13 @@ const styles = StyleSheet.create({
   actionPillLabel: { fontSize: 13, fontWeight: '600' },
   monthCard: { minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 14 },
   monthIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  monthIconText: { fontSize: 20, fontWeight: '600' },
   monthCopy: { flex: 1, gap: 3, backgroundColor: 'transparent' },
   monthLabel: { fontSize: 14, fontWeight: '600' },
   monthAmount: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, fontVariant: ['tabular-nums'] },
   monthMeta: { fontSize: 11 },
-  monthChevron: { fontSize: 24, fontWeight: '300' },
   merchantCard: { gap: 5 },
   merchantRow: { gap: 7, paddingVertical: 8, backgroundColor: 'transparent' },
-  merchantHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, backgroundColor: 'transparent' },
+  merchantHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: 'transparent' },
   merchantName: { flex: 1, fontSize: 15, fontWeight: '600' },
   merchantAmount: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
   barTrack: { height: 5, borderRadius: 999, overflow: 'hidden' },

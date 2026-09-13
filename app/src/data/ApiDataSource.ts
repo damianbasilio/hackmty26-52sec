@@ -163,6 +163,18 @@ export class ApiDataSource implements DataSource {
     await this.post(`/savings/rules/${ruleId}/activate`, { destination_account_id: destinationAccountId });
   }
 
+  async createSavingsAccount(nickname: string): Promise<Account> {
+    try {
+      return await this.request<Account>('POST', '/accounts', {}, { nickname: nickname.trim(), type: 'savings' });
+    } catch (cause) {
+      // ponytail: el engine todavía no expone POST /accounts (pedido al carril B).
+      if (cause instanceof Error && /^(404|405) /.test(cause.message)) {
+        throw new Error('Abrir cuentas de ahorro desde la app todavía no está disponible con el servidor conectado.');
+      }
+      throw cause;
+    }
+  }
+
   // El engine es quien mueve el dinero: hace el retiro y el depósito en Nessie
   // y deja la fila en `transfers`. Es idempotente por `id`, así que reenviar el
   // mismo borrador reconcilia en vez de cobrar dos veces.

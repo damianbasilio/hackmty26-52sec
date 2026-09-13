@@ -94,7 +94,8 @@ function useReveal(target: number): number {
 export function ScoreGauge({ score }: { score: CashflowScore }) {
   const palette = usePalette();
   const shown = useReveal(score.score);
-  const scoreProgress = progress(score.score);
+  // El arco se llena y el marcador viaja junto con el número que cuenta.
+  const shownProgress = progress(shown);
   const delta = score.previous_score === null ? null : score.score - score.previous_score;
   const color = bandColor(score.band, palette);
 
@@ -113,14 +114,14 @@ export function ScoreGauge({ score }: { score: CashflowScore }) {
               style={[
                 styles.segment,
                 arcStyle(index / (SEGMENTS - 1)),
-                { backgroundColor: segmentColor(index, palette) },
+                { backgroundColor: index / (SEGMENTS - 1) <= shownProgress ? segmentColor(index, palette) : palette.track },
               ]}
             />
           ))}
         </Animated.View>
         <Animated.View
           entering={FadeIn.delay(300).duration(220).reduceMotion(ReduceMotion.System)}
-          style={[styles.currentMarker, arcStyle(scoreProgress)]}>
+          style={[styles.currentMarker, arcStyle(shownProgress)]}>
           <View style={[styles.markerCore, { backgroundColor: palette.surface }]} />
         </Animated.View>
 

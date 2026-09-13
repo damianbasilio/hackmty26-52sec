@@ -22,6 +22,8 @@ const BACKGROUND_LOCK_MS = 15_000;
 const PIN_LENGTH = 6;
 const TRUSTED_DEVICE_KEY = 'capital-one.trusted-device.v1';
 const DEVICE_PIN_PREFIX = 'capital-one.device-pin.v1.';
+const RECENT_ACCOUNTS_KEY = 'capital-one.recent-accounts.v1';
+const MAX_RECENT_ACCOUNTS = 5;
 
 // Precargan los campos en la demo. Vienen del .env, que no se commitea: sin
 // ellas los botones de demostración no se muestran.
@@ -30,9 +32,22 @@ const DEMO_PASSWORD = process.env.EXPO_PUBLIC_DEMO_PASSWORD ?? '';
 const DEMO_PIN = process.env.EXPO_PUBLIC_DEMO_PIN ?? '';
 
 type AuthResult = { ok: true } | { ok: false; message: string };
+type SignUpResult = { ok: true; needsConfirmation: boolean } | { ok: false; message: string };
+
+export type SignUpInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+};
 
 type AuthContextValue = {
   signedIn: boolean;
+  userId: string | null;
+  /** Del registro; null para usuarios creados a mano en Supabase. */
+  firstName: string | null;
+  /** Correos que ya entraron en este teléfono, el más reciente primero. */
+  recentEmails: string[];
   sessionLocked: boolean;
   /** La sesión es válida pero el dispositivo todavía no tiene PIN. */
   needsPinSetup: boolean;
@@ -47,6 +62,8 @@ type AuthContextValue = {
   demoPassword: string;
   demoPin: string;
   signIn: (email: string, password: string) => Promise<AuthResult>;
+  signUp: (input: SignUpInput) => Promise<SignUpResult>;
+  forgetAccount: (email: string) => void;
   setDevicePin: (pin: string) => Promise<AuthResult>;
   unlock: (pin: string) => Promise<AuthResult>;
   authenticateWithBiometrics: () => Promise<AuthResult>;
@@ -70,10 +87,27 @@ async function readStoredPin(userId: string | null): Promise<string | null> {
   }
 }
 
+async function readRecentEmails(): Promise<string[]> {
+  try {
+    const raw = await SecureStore.getItemAsync(RECENT_ACCOUNTS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function metadataFirstName(metadata: Record<string, unknown> | undefined): string | null {
+  const value = metadata?.first_name;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const palette = usePalette();
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [recentEmails, setRecentEmails] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [sessionLocked, setSessionLocked] = useState(false);
   const [needsPinSetup, setNeedsPinSetup] = useState(false);
@@ -113,10 +147,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     }
     prepareDeviceSecurity();
+    readRecentEmails().then((emails) => {
+      if (active) setRecentEmails(emails);
+    });
     return () => {
       active = false;
     };
   }, []);
+
+  const saveRecentEmails = useCallback((update: (current: string[]) => string[]) => {
+    setRecentEmails((current) => {
+      const next = update(current);
+      SecureStore.setItemAsync(RECENT_ACCOUNTS_KEY, JSON.stringify(next)).catch(() => undefined);
+      return next;
+    });
+  }, []);
+
+  const rememberAccount = useCallback((accountEmail: string | null | undefined) => {
+    if (!accountEmail) return;
+    const normalized = accountEmail.toLowerCase();
+    saveRecentEmails((current) =>
+      [normalized, ...current.filter((item) => item !== normalized)].slice(0, MAX_RECENT_ACCOUNTS),
+    );
+  }, [saveRecentEmails]);
+
+  const forgetAccount = useCallback((accountEmail: string) => {
+    const normalized = accountEmail.toLowerCase();
+    saveRecentEmails((current) => current.filter((item) => item !== normalized));
+  }, [saveRecentEmails]);
 
   // Sesión guardada en el llavero. Un arranque en frío la recupera pero entra
   // bloqueada: tener el teléfono no debe bastar para ver el saldo.
@@ -134,6 +192,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (user) {
           setUserId(user.id);
           setEmail(user.email ?? null);
+          setFirstName(metadataFirstName(user.user_metadata));
           setNeedsPinSetup((await readStoredPin(user.id)) === null);
           setSessionLocked(true);
         }
@@ -223,9 +282,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLockUntil(null);
       setUserId(data.user.id);
       setEmail(data.user.email ?? null);
+      setFirstName(metadataFirstName(data.user.user_metadata));
+      rememberAccount(data.user.email);
       const storedPin = await readStoredPin(data.user.id);
       setNeedsPinSetup(storedPin === null);
-      setSessionLocked(storedPin === null);
+      // La contraseña sola no abre la app: siempre sigue el PIN del dispositivo,
+      // también con el acceso de demostración.
+      setSessionLocked(true);
       try {
         await SecureStore.setItemAsync(TRUSTED_DEVICE_KEY, 'enabled', {
           keychainAccessible: SecureStore.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
@@ -238,7 +301,42 @@ export function AuthProvider({ children }: PropsWithChildren) {
     } catch (cause) {
       return { ok: false, message: describeSupabaseError(cause) };
     }
-  }, [biometricsAvailable, checkLockout, registerFailure]);
+  }, [biometricsAvailable, checkLockout, registerFailure, rememberAccount]);
+
+  const signUp = useCallback(async (input: SignUpInput): Promise<SignUpResult> => {
+    if (!supabase) {
+      return {
+        ok: false,
+        message: 'La app no tiene configurado el acceso. Falta EXPO_PUBLIC_SUPABASE_URL en el .env.',
+      };
+    }
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: input.email.trim().toLowerCase(),
+        password: input.password,
+        // handle_new_auth_user() liga la cuenta a un customer existente por correo.
+        options: { data: { first_name: input.firstName.trim(), last_name: input.lastName.trim() } },
+      });
+      if (error) return { ok: false, message: describeSupabaseError(error) };
+      // Con la protección contra enumeración, un correo ya registrado regresa
+      // un usuario sin identidades en vez de un error.
+      if (data.user && data.user.identities?.length === 0) {
+        return { ok: false, message: 'Ese correo ya tiene una cuenta. Inicia sesión.' };
+      }
+      rememberAccount(data.user?.email ?? input.email);
+      if (!data.session || !data.user) return { ok: true, needsConfirmation: true };
+      setFailedAttempts(0);
+      setLockUntil(null);
+      setUserId(data.user.id);
+      setEmail(data.user.email ?? null);
+      setFirstName(metadataFirstName(data.user.user_metadata));
+      setNeedsPinSetup((await readStoredPin(data.user.id)) === null);
+      setSessionLocked(true);
+      return { ok: true, needsConfirmation: false };
+    } catch (cause) {
+      return { ok: false, message: describeSupabaseError(cause) };
+    }
+  }, [rememberAccount]);
 
   const setDevicePin = useCallback(async (pin: string): Promise<AuthResult> => {
     if (!/^\d{6}$/.test(pin)) {
@@ -320,6 +418,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     supabase?.auth.signOut().catch(() => undefined);
     setUserId(null);
     setEmail(null);
+    setFirstName(null);
     setSessionLocked(false);
     setNeedsPinSetup(false);
     setFailedAttempts(0);
@@ -328,6 +427,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const value = useMemo<AuthContextValue>(() => ({
     signedIn,
+    userId,
+    firstName,
+    recentEmails,
     sessionLocked,
     needsPinSetup,
     ready,
@@ -341,13 +443,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     demoPassword: DEMO_PASSWORD,
     demoPin: DEMO_PIN,
     signIn,
+    signUp,
+    forgetAccount,
     setDevicePin,
     unlock,
     authenticateWithBiometrics,
     verifyTransactionPin,
     lock: () => setSessionLocked(true),
     signOut,
-  }), [authenticateWithBiometrics, biometricLabel, biometricSignInEnabled, biometricsAvailable, email, failedAttempts, lockUntil, needsPinSetup, ready, sessionLocked, setDevicePin, signIn, signOut, signedIn, unlock, verifyTransactionPin]);
+  }), [authenticateWithBiometrics, biometricLabel, biometricSignInEnabled, biometricsAvailable, email, failedAttempts, firstName, forgetAccount, lockUntil, needsPinSetup, ready, recentEmails, sessionLocked, setDevicePin, signIn, signOut, signUp, signedIn, unlock, userId, verifyTransactionPin]);
 
   return (
     <AuthContext.Provider value={value}>

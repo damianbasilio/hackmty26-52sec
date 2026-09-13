@@ -40,7 +40,7 @@ const rules = rulesJson as SavingsRule[];
 
 /** Mutations only live in memory; a reload resets them. Good enough for the demo. */
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
-const activated = new Set<string>();
+const activated = new Map<string, { accountId: string; at: string }>();
 const sentTransfers: Transfer[] = [];
 
 const CODE_TTL_MS = 15 * 60 * 1000;
@@ -116,7 +116,8 @@ export class FixtureDataSource implements DataSource {
   }
 
   async getAccounts(): Promise<Account[]> {
-    return accounts;
+    // Copia: con la misma referencia los useMemo no ven la cuenta nueva.
+    return [...accounts];
   }
 
   async getTransactions({ accountId, from, to, limit }: TransactionQuery): Promise<EnrichedTransaction[]> {
@@ -151,15 +152,41 @@ export class FixtureDataSource implements DataSource {
   async getSavingsRules(accountId: string): Promise<SavingsRule[]> {
     return rules
       .filter((r) => r.account_id === accountId)
-      .map((r) => (activated.has(r.id) ? { ...r, status: 'active' as const } : r));
+      .map((r) => {
+        const destination = activated.get(r.id);
+        return destination
+          ? { ...r, status: 'active' as const, destination_account_id: destination.accountId, activated_at: destination.at }
+          : r;
+      });
   }
 
   async resolveAlert(alertId: string, resolution: NonNullable<AnomalyAlert['resolution']>): Promise<void> {
     resolved.set(alertId, resolution);
   }
 
-  async activateSavingsRule(ruleId: string): Promise<void> {
-    activated.add(ruleId);
+  async activateSavingsRule(ruleId: string, destinationAccountId: string): Promise<void> {
+    activated.set(ruleId, { accountId: destinationAccountId, at: new Date().toISOString() });
+  }
+
+  async createSavingsAccount(nickname: string): Promise<Account> {
+    const name = nickname.trim();
+    if (!name) throw new Error('Ponle un nombre a tu cuenta de ahorro.');
+    if (accounts.some((account) => account.nickname.toLowerCase() === name.toLowerCase())) {
+      throw new Error('Ya tienes una cuenta con ese nombre.');
+    }
+    const account: Account = {
+      id: nextId('acc_savings'),
+      customer_id: customers[0].id,
+      nickname: name,
+      type: 'savings',
+      last_four: String(Math.floor(Math.random() * 9000) + 1000),
+      balance_cents: 0,
+      currency: 'MXN',
+      nessie_account_id: null,
+      created_at: new Date().toISOString(),
+    };
+    accounts.push(account);
+    return account;
   }
 
   async getRecipients(accountId: string): Promise<TransferRecipient[]> {
