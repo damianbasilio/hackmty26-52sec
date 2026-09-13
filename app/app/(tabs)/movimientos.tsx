@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View as Box } from 'react-native';
+import { FlatList, Modal, RefreshControl, ScrollView, StyleSheet, TextInput, View as Box } from 'react-native';
 import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 
 import type {
@@ -13,8 +13,10 @@ import type {
   TransactionStatus,
 } from '@contracts/types';
 
+import { CalendarPicker } from '@/components/CalendarPicker';
 import { Card } from '@/components/Card';
 import { MotionPressable, Reveal } from '@/components/Motion';
+import { OptionSheet } from '@/components/OptionSheet';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
@@ -27,16 +29,17 @@ import {
   todayKey,
 } from '@/components/display';
 import { usePalette } from '@/components/palette';
-import { TRANSACTION_TYPE_LABELS, transactionReceipt } from '@/components/receipt';
-import { Chevron, Chip, Collapsible, EmptyState } from '@/components/ui';
+import { TRANSACTION_TYPE_LABELS, shareReceipt, transactionReceipt } from '@/components/receipt';
+import { Chevron, Collapsible, EmptyState } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents, formatLongDay, formatMonthName } from '@/src/format';
 
 type Filter = 'all' | 'expenses' | 'income';
-/** `all`, `7d`, `30d` o un mes `YYYY-MM`. */
-type Period = string;
+type Period = { kind: 'all' } | { kind: 'month'; key: string } | { kind: 'day'; key: string };
 type Resolution = NonNullable<AnomalyAlert['resolution']>;
+
+const ALL_TIME: Period = { kind: 'all' };
 
 const STATUS_LABELS: Record<TransactionStatus, string> = {
   pending: 'Pendiente',
@@ -61,24 +64,29 @@ function fold(text: string): string {
     .replace(/[úùü]/g, 'u');
 }
 
-function shiftDay(day: string, days: number): string {
-  return new Date(Date.parse(`${day}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
-}
-
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function inPeriod(transaction: EnrichedTransaction, period: Period, today: string): boolean {
-  if (period === 'all') return true;
+function previousMonth(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7);
+}
+
+function periodLabel(period: Period): string {
+  if (period.kind === 'all') return 'Todas las fechas';
+  if (period.kind === 'month') return capitalize(formatMonthName(period.key));
+  return formatLongDay(period.key);
+}
+
+function inPeriod(transaction: EnrichedTransaction, period: Period): boolean {
+  if (period.kind === 'all') return true;
   const day = localDayKey(transaction.occurred_at);
-  if (period === '7d') return day >= shiftDay(today, -6);
-  if (period === '30d') return day >= shiftDay(today, -29);
-  return day.startsWith(period);
+  return period.kind === 'day' ? day === period.key : day.startsWith(period.key);
 }
 
 function matchesQuery(transaction: EnrichedTransaction, query: string): boolean {
-  if (!query) return true;
+  if (!query.trim()) return true;
   const needle = fold(query.trim());
   return [
     transaction.merchant_display_name ?? '',
@@ -91,17 +99,22 @@ function matchesQuery(transaction: EnrichedTransaction, query: string): boolean 
 export default function MovimientosScreen() {
   const palette = usePalette();
   const params = useLocalSearchParams<{ filter?: string; month?: string; q?: string; category?: string; at?: string }>();
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<Period>(ALL_TIME);
   const [category, setCategory] = useState<MerchantCategory | null>(null);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const today = todayKey();
 
   // Inicio y Salud abren esta pestaña ya filtrada; `at` cambia en cada toque.
   useEffect(() => {
     if (!params.at) return;
     setFilter(params.filter === 'expenses' || params.filter === 'income' ? params.filter : 'all');
-    setPeriod(params.month || 'all');
+    setPeriod(params.month ? { kind: 'month', key: params.month } : ALL_TIME);
     setQuery(params.q ?? '');
     setCategory(params.category && params.category in CATEGORY_LABELS ? (params.category as MerchantCategory) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,15 +122,17 @@ export default function MovimientosScreen() {
 
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
-    const account = accounts.find((candidate) => candidate.type === 'checking') ?? accounts[0];
+    const account = accounts.find((candidate) => candidate.id === accountId)
+      ?? accounts.find((candidate) => candidate.type === 'checking')
+      ?? accounts[0];
     if (!account) throw new Error('No hay cuentas disponibles.');
     const [transactions, alerts, subscriptions] = await Promise.all([
       dataSource.getTransactions({ accountId: account.id }),
       dataSource.getAlerts(account.id, true),
       dataSource.getSubscriptions(account.id),
     ]);
-    return { account, transactions, alerts, subscriptions };
-  });
+    return { accounts, account, transactions, alerts, subscriptions };
+  }, [accountId]);
 
   const transactions = useMemo(() => data?.transactions ?? [], [data?.transactions]);
   const selected = transactions.find((transaction) => transaction.id === selectedId) ?? null;
@@ -127,23 +142,24 @@ export default function MovimientosScreen() {
     for (const transaction of transactions) {
       counts.set(transaction.category, (counts.get(transaction.category) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([key]) => key);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [transactions]);
 
-  const months = useMemo(
-    () => [...new Set(transactions.map((transaction) => localMonthKey(transaction.occurred_at)))].sort().reverse(),
+  const markedDays = useMemo(
+    () => new Set(transactions.map((transaction) => localDayKey(transaction.occurred_at))),
     [transactions],
   );
 
-  const visible = useMemo(() => {
-    const today = todayKey();
-    return transactions.filter((transaction) => {
-      if (filter === 'expenses' && transaction.amount_cents >= 0) return false;
-      if (filter === 'income' && transaction.amount_cents <= 0) return false;
-      if (category && transaction.category !== category) return false;
-      return inPeriod(transaction, period, today) && matchesQuery(transaction, query);
-    });
-  }, [category, filter, period, query, transactions]);
+  const visible = useMemo(
+    () =>
+      transactions.filter((transaction) => {
+        if (filter === 'expenses' && transaction.amount_cents >= 0) return false;
+        if (filter === 'income' && transaction.amount_cents <= 0) return false;
+        if (category && transaction.category !== category) return false;
+        return inPeriod(transaction, period) && matchesQuery(transaction, query);
+      }),
+    [category, filter, period, query, transactions],
+  );
 
   const groups = useMemo(() => {
     const byDay = new Map<string, EnrichedTransaction[]>();
@@ -160,24 +176,26 @@ export default function MovimientosScreen() {
   }, [visible]);
 
   if (loading && !data) return <LoadingState label="Cargando movimientos…" />;
-  if (error) return <ErrorState message={error} onRetry={reload} />;
+  if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
-  const hasFilters = filter !== 'all' || period !== 'all' || category !== null || query.trim().length > 0;
+  const hasFilters = filter !== 'all' || period.kind !== 'all' || category !== null || query.trim().length > 0;
   const visibleTotal = visible.reduce((sum, transaction) => sum + transaction.amount_cents, 0);
+  const thisMonth = today.slice(0, 7);
+  const lastMonth = previousMonth(thisMonth);
+  const quickKey = period.kind === 'all'
+    ? 'all'
+    : period.kind === 'month' && period.key === thisMonth
+      ? 'this-month'
+      : period.kind === 'month' && period.key === lastMonth
+        ? 'last-month'
+        : null;
 
   function clearFilters() {
     setFilter('all');
-    setPeriod('all');
+    setPeriod(ALL_TIME);
     setCategory(null);
     setQuery('');
   }
-
-  const periods: [Period, string][] = [
-    ['all', 'Todo'],
-    ['7d', 'Últimos 7 días'],
-    ['30d', 'Últimos 30 días'],
-    ...months.map((month): [Period, string] => [month, capitalize(formatMonthName(month))]),
-  ];
 
   return (
     <PremiumSurface>
@@ -195,7 +213,23 @@ export default function MovimientosScreen() {
               <Text style={styles.title}>Movimientos</Text>
             </Reveal>
 
-            <Reveal delay={50}>
+            {data.accounts.length > 1 ? (
+              <Reveal delay={40} style={styles.centered}>
+                <MotionPressable
+                  accessibilityHint="Elige de qué cuenta ver los movimientos"
+                  accessibilityRole="button"
+                  onPress={() => setAccountOpen(true)}
+                  style={[styles.accountPill, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                  <SymbolView name={{ ios: 'creditcard.fill', android: 'credit_card', web: 'credit_card' }} tintColor={palette.accent} size={15} />
+                  <Text numberOfLines={1} style={styles.accountPillLabel}>
+                    {data.account.nickname} ·· {data.account.last_four}
+                  </Text>
+                  <Chevron direction="down" size={12} />
+                </MotionPressable>
+              </Reveal>
+            ) : null}
+
+            <Reveal delay={60}>
               <Box style={[styles.search, { backgroundColor: palette.surface, borderColor: palette.border }]}>
                 <SymbolView name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }} tintColor={palette.muted} size={18} />
                 <TextInput
@@ -216,7 +250,7 @@ export default function MovimientosScreen() {
               </Box>
             </Reveal>
 
-            <Reveal delay={80}>
+            <Reveal delay={90}>
               <Box style={[styles.segmented, { backgroundColor: palette.surface, borderColor: palette.border }]}>
                 {FILTERS.map(([value, label]) => {
                   const active = filter === value;
@@ -234,33 +268,22 @@ export default function MovimientosScreen() {
               </Box>
             </Reveal>
 
-            <Reveal delay={110} style={styles.filterGroup}>
-              <Text style={[styles.filterLabel, { color: palette.muted }]}>Fecha</Text>
-              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-                {periods.map(([value, label]) => (
-                  <Chip key={value} label={label} selected={period === value} onPress={() => setPeriod(value)} />
-                ))}
-              </ScrollView>
+            <Reveal delay={120} style={styles.filterRow}>
+              <FilterButton
+                active={period.kind !== 'all'}
+                icon={{ ios: 'calendar', android: 'calendar_month', web: 'calendar_month' }}
+                label={periodLabel(period)}
+                onPress={() => setCalendarOpen(true)}
+              />
+              <FilterButton
+                active={category !== null}
+                icon={{ ios: 'tag.fill', android: 'sell', web: 'sell' }}
+                label={category ? CATEGORY_LABELS[category] : 'Categorías'}
+                onPress={() => setCategoryOpen(true)}
+              />
             </Reveal>
 
-            {categories.length > 0 ? (
-              <Reveal delay={140} style={styles.filterGroup}>
-                <Text style={[styles.filterLabel, { color: palette.muted }]}>Categoría</Text>
-                <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-                  <Chip label="Todas" selected={category === null} onPress={() => setCategory(null)} />
-                  {categories.map((key) => (
-                    <Chip
-                      key={key}
-                      label={CATEGORY_LABELS[key]}
-                      selected={category === key}
-                      onPress={() => setCategory((current) => (current === key ? null : key))}
-                    />
-                  ))}
-                </ScrollView>
-              </Reveal>
-            ) : null}
-
-            <Box style={styles.summaryRow}>
+            <Box style={styles.summary}>
               <Text style={[styles.summaryText, { color: palette.muted }]}>
                 {visible.length} {visible.length === 1 ? 'movimiento' : 'movimientos'} · {formatSignedCents(visibleTotal)}
               </Text>
@@ -298,12 +321,75 @@ export default function MovimientosScreen() {
         )}
       />
 
+      <CalendarPicker
+        visible={calendarOpen}
+        selectedDay={period.kind === 'day' ? period.key : null}
+        today={today}
+        markedDays={markedDays}
+        quickRanges={[
+          { key: 'all', label: 'Todas' },
+          { key: 'this-month', label: 'Este mes' },
+          { key: 'last-month', label: 'Mes pasado' },
+        ]}
+        selectedQuickKey={quickKey}
+        onSelectDay={(day) => {
+          setPeriod({ kind: 'day', key: day });
+          setCalendarOpen(false);
+        }}
+        onSelectQuick={(key) => {
+          setPeriod(key === 'this-month'
+            ? { kind: 'month', key: thisMonth }
+            : key === 'last-month'
+              ? { kind: 'month', key: lastMonth }
+              : ALL_TIME);
+          setCalendarOpen(false);
+        }}
+        onClose={() => setCalendarOpen(false)}
+      />
+
+      <OptionSheet
+        visible={categoryOpen}
+        title="Filtrar por categoría"
+        options={[
+          { key: 'all', label: 'Todas las categorías', detail: `${transactions.length} movimientos` },
+          ...categories.map(([key, count]) => ({
+            key,
+            label: CATEGORY_LABELS[key],
+            detail: `${count} ${count === 1 ? 'movimiento' : 'movimientos'}`,
+          })),
+        ]}
+        selectedKey={category ?? 'all'}
+        onSelect={(key) => {
+          setCategory(key === 'all' ? null : (key as MerchantCategory));
+          setCategoryOpen(false);
+        }}
+        onClose={() => setCategoryOpen(false)}
+      />
+
+      <OptionSheet
+        visible={accountOpen}
+        title="¿De qué cuenta?"
+        options={data.accounts.map((account) => ({
+          key: account.id,
+          label: `${account.nickname} ·· ${account.last_four}`,
+          detail: formatCents(account.balance_cents),
+        }))}
+        selectedKey={data.account.id}
+        onSelect={(key) => {
+          setAccountId(key);
+          setSelectedId(null);
+          setCategory(null);
+          setAccountOpen(false);
+        }}
+        onClose={() => setAccountOpen(false)}
+      />
+
       <Modal
         visible={selected !== null}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setSelectedId(null)}>
-        {selected && data ? (
+        {selected ? (
           <TransactionDetail
             txn={selected}
             account={data.account}
@@ -315,6 +401,37 @@ export default function MovimientosScreen() {
         ) : null}
       </Modal>
     </PremiumSurface>
+  );
+}
+
+function FilterButton({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: { ios: string; android: string; web: string };
+  label: string;
+  onPress: () => void;
+}) {
+  const palette = usePalette();
+  return (
+    <MotionPressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[
+        styles.filterButton,
+        {
+          backgroundColor: active ? palette.accentSoft : palette.surface,
+          borderColor: active ? palette.primary : palette.border,
+        },
+      ]}>
+      <SymbolView name={icon as never} tintColor={active ? palette.accent : palette.muted} size={15} />
+      <Text numberOfLines={1} style={[styles.filterLabel, { color: active ? palette.accent : palette.ink }]}>{label}</Text>
+      <Chevron direction="down" color={active ? palette.accent : palette.muted} size={11} />
+    </MotionPressable>
   );
 }
 
@@ -379,6 +496,7 @@ function TransactionDetail({
   const name = txn.merchant_display_name ?? txn.raw_description;
   const [bankOpen, setBankOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [resolving, setResolving] = useState<Resolution | null>(null);
   const [resolved, setResolved] = useState<Resolution | null>(alert?.resolution ?? null);
   const [resolutionError, setResolutionError] = useState(false);
@@ -404,8 +522,10 @@ function TransactionDetail({
     }
   }
 
-  function shareReceipt() {
-    Share.share({ title: 'Comprobante', message: transactionReceipt(txn, account) }).catch(() => undefined);
+  async function share() {
+    setSharing(true);
+    await shareReceipt(transactionReceipt(txn, account));
+    setSharing(false);
   }
 
   return (
@@ -415,7 +535,7 @@ function TransactionDetail({
           <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} tintColor={palette.ink} size={20} />
         </MotionPressable>
         <Box style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
-        <MotionPressable accessibilityLabel="Compartir comprobante" accessibilityRole="button" hitSlop={10} onPress={shareReceipt} pressedScale={0.94} style={styles.closeButton}>
+        <MotionPressable accessibilityLabel="Compartir comprobante" accessibilityRole="button" disabled={sharing} hitSlop={10} onPress={share} pressedScale={0.94} style={styles.closeButton}>
           <SymbolView name={{ ios: 'square.and.arrow.up', android: 'share', web: 'share' }} tintColor={palette.ink} size={19} />
         </MotionPressable>
       </Box>
@@ -473,10 +593,11 @@ function TransactionDetail({
         <Reveal delay={110}>
           <MotionPressable
             accessibilityRole="button"
-            onPress={shareReceipt}
-            style={[styles.shareButton, { borderColor: palette.border, backgroundColor: palette.surface }]}>
-            <SymbolView name={{ ios: 'square.and.arrow.up', android: 'share', web: 'share' }} tintColor={palette.accent} size={18} />
-            <Text style={[styles.shareLabel, { color: palette.accent }]}>Compartir comprobante</Text>
+            disabled={sharing}
+            onPress={share}
+            style={[styles.shareButton, { borderColor: palette.border, backgroundColor: palette.surface, opacity: sharing ? 0.6 : 1 }]}>
+            <SymbolView name={{ ios: 'doc.richtext', android: 'picture_as_pdf', web: 'picture_as_pdf' }} tintColor={palette.accent} size={18} />
+            <Text style={[styles.shareLabel, { color: palette.accent }]}>{sharing ? 'Preparando PDF…' : 'Compartir comprobante (PDF)'}</Text>
           </MotionPressable>
         </Reveal>
 
@@ -621,19 +742,22 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 138 },
   listEmpty: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120 },
   header: { gap: 14, marginBottom: 22, backgroundColor: 'transparent' },
-  title: { fontSize: 36, lineHeight: 41, fontWeight: '700', letterSpacing: -1.1 },
+  title: { fontSize: 34, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1, textAlign: 'center' },
+  centered: { alignItems: 'center' },
+  accountPill: { maxWidth: '100%', minHeight: 40, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  accountPillLabel: { flexShrink: 1, fontSize: 14, fontWeight: '600' },
   search: { minHeight: 50, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, paddingLeft: 14, flexDirection: 'row', alignItems: 'center', gap: 9 },
   searchInput: { flex: 1, minHeight: 48, fontSize: 15 },
   searchClear: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  segmented: { height: 54, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, padding: 5, flexDirection: 'row', gap: 3 },
-  segment: { flex: 1, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  segmentLabel: { fontSize: 15, fontWeight: '600' },
-  filterGroup: { gap: 7 },
-  filterLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
-  filters: { gap: 8, paddingRight: 20 },
-  summaryRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  summaryText: { flex: 1, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  clearLabel: { fontSize: 13, fontWeight: '700' },
+  segmented: { height: 52, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, padding: 5, flexDirection: 'row', gap: 3 },
+  segment: { flex: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  segmentLabel: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  filterRow: { flexDirection: 'row', gap: 10 },
+  filterButton: { flex: 1, minHeight: 46, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  filterLabel: { flexShrink: 1, fontSize: 14, fontWeight: '600' },
+  summary: { alignItems: 'center', gap: 4 },
+  summaryText: { fontSize: 13, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  clearLabel: { fontSize: 13, fontWeight: '700', textAlign: 'center' },
   groupWrap: { marginBottom: 22 },
   dayHead: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, backgroundColor: 'transparent' },
   dayHeading: { fontSize: 15, fontWeight: '600' },

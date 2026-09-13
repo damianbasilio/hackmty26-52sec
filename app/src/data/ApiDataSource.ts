@@ -163,16 +163,8 @@ export class ApiDataSource implements DataSource {
     await this.post(`/savings/rules/${ruleId}/activate`, { destination_account_id: destinationAccountId });
   }
 
-  async createSavingsAccount(nickname: string): Promise<Account> {
-    try {
-      return await this.request<Account>('POST', '/accounts', {}, { nickname: nickname.trim(), type: 'savings' });
-    } catch (cause) {
-      // ponytail: el engine todavía no expone POST /accounts (pedido al carril B).
-      if (cause instanceof Error && /^(404|405) /.test(cause.message)) {
-        throw new Error('Abrir cuentas de ahorro desde la app todavía no está disponible con el servidor conectado.');
-      }
-      throw cause;
-    }
+  createSavingsAccount(nickname: string): Promise<Account> {
+    return this.request<Account>('POST', '/accounts', {}, { nickname: nickname.trim() });
   }
 
   // El engine es quien mueve el dinero: hace el retiro y el depósito en Nessie
@@ -301,6 +293,8 @@ export class ApiDataSource implements DataSource {
       display_name: `${me.first_name} ${me.last_name}`.trim(),
       share_cents: totalCents,
       is_creator: true,
+      // El anfitrión ya pagó la cuenta completa: recibe las partes, no paga la suya.
+      paid_at: new Date().toISOString(),
     });
     if (participantError) fail(participantError, 'No pudimos agregarte a la división.');
 
@@ -360,18 +354,31 @@ export class ApiDataSource implements DataSource {
     if (!person) throw new Error('No encontramos tu parte en esta división.');
     if (person.paid) return split;
 
+    // Pagas desde tu propia cuenta. La de la división es la del anfitrión, que
+    // es quien recibe el dinero.
+    const { data: ownAccounts, error: accountsError } = await supabase.from('accounts').select('id, type');
+    if (accountsError) fail(accountsError, 'No pudimos leer tus cuentas.');
+    const payer = (ownAccounts ?? []).find((account) => account.type === 'checking') ?? ownAccounts?.[0];
+    if (!payer) throw new Error('No hay ninguna cuenta para pagar tu parte.');
+    const host = split.participants.find((candidate) => candidate.is_creator);
+    // El engine solo deposita en cuentas ligadas a Nessie (acc_nessie_*); con
+    // cualquier otra, el anfitrión cuenta como destinatario externo.
+    const hostAccountId = split.request.account_id.startsWith('acc_nessie_') && split.request.account_id !== payer.id
+      ? split.request.account_id
+      : null;
+
     // El id sale del participante, no de un random: si la red se cae entre el
     // envío y el `paid_at` de abajo, el reintento manda exactamente la misma
     // transferencia y el engine la reconcilia en vez de cobrar la parte otra vez.
     const transfer = await this.createTransfer({
       id: splitShareTransferId(participantId),
-      accountId: split.request.account_id,
+      accountId: payer.id,
       recipient: {
         id: `split_${split.request.id}`,
-        name: split.request.title || 'División de gasto',
-        bank: null,
+        name: host?.display_name || split.request.title || 'División de gasto',
+        bank: 'Capital One',
         last_four: null,
-        account_id: null,
+        account_id: hostAccountId,
       },
       amountCents: person.share_cents,
       concept: `Mi parte de la división ${split.request.code}`,

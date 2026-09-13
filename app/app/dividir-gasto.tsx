@@ -24,7 +24,7 @@ import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { dataSource, dataSourceMode, sharesFor, type Split, type SplitParticipant } from '@/src/data';
 import { formatCents } from '@/src/format';
-import { moneyInputToCents, normalizeMoneyInput, withCents } from '@/src/moneyInput';
+import { moneyInputToCents, moneyMaxLength, normalizeMoneyInput, withCents } from '@/src/moneyInput';
 import { nearbySplit, type NearbyStatus } from '@/modules/expo-nearby-split';
 
 type Step = 'amount' | 'join' | 'room';
@@ -199,10 +199,10 @@ export default function DividirGastoScreen() {
 
   function goBack() {
     if (step === 'room') {
+      // La división ya existe: regresar a "¿cuánto quieren dividir?" confundía.
       stopNearby();
-      setSplit(null);
-      setMyParticipantId(null);
-      setStep('amount');
+      if (router.canGoBack()) router.back();
+      else router.replace('/' as never);
     } else if (step === 'join') {
       setStep('amount');
     } else {
@@ -265,6 +265,16 @@ export default function DividirGastoScreen() {
           ) : null}
 
           {message ? <Message text={message} /> : null}
+
+          {step === 'room' ? (
+            <MotionPressable
+              accessibilityRole="button"
+              onPress={goBack}
+              style={[styles.secondaryButton, { borderColor: palette.border }]}>
+              <SymbolView name={{ ios: 'house.fill', android: 'home', web: 'home' }} tintColor={palette.accentDeep} size={18} />
+              <Text style={[styles.secondaryLabel, { color: palette.accentDeep }]}>Volver al inicio</Text>
+            </MotionPressable>
+          ) : null}
       </FormScroll>
     </PremiumSurface>
   );
@@ -333,6 +343,7 @@ function AmountStep({
             <TextInput
               accessibilityLabel="Total del gasto"
               keyboardType="decimal-pad"
+              maxLength={moneyMaxLength(amount)}
               onBlur={onAmountBlur}
               onChangeText={onAmountChange}
               placeholder="0.00"
@@ -485,7 +496,9 @@ function RoomStep({
   const me = split.participants.find((person) => person.id === myParticipantId) ?? null;
   const isCreator = me?.is_creator ?? false;
   const pending = split.participants.filter((person) => !person.paid).length;
-  const settled = split.request.status === 'settled';
+  // Quien se une no puede marcar la división como liquidada (RLS), así que
+  // también cuenta como liquidada cuando ya pagaron todos.
+  const settled = split.request.status === 'settled' || (split.participants.length > 1 && pending === 0);
   const expired = remaining === 0;
 
   return (
@@ -510,6 +523,11 @@ function RoomStep({
         <Text style={[styles.codeExpiry, { color: expired ? palette.danger : palette.muted }]}>
           {expired ? 'El código ya caducó: nadie más puede unirse.' : `Caduca en ${remaining} min`}
         </Text>
+        {isCreator ? (
+          <Text style={[styles.liveMeta, { color: palette.positive }]}>
+            Tú pagaste la cuenta: no se te descuenta nada y recibes la parte de cada quien.
+          </Text>
+        ) : null}
       </Card>
 
       <View style={styles.participantSection}>
@@ -531,7 +549,7 @@ function RoomStep({
         </Text>
       </View>
 
-      {me && !me.paid ? (
+      {me && !me.paid && !isCreator ? (
         <Card style={styles.pinCard}>
           <View style={styles.pinHeading}>
             <SymbolView
@@ -640,7 +658,7 @@ function ParticipantRow({
       <View style={styles.participantCopy}>
         <Text style={styles.participantName}>{isMe ? 'Tú' : participant.display_name}</Text>
         <Text style={[styles.participantStatus, { color: participant.paid ? palette.positive : palette.muted }]}>
-          {participant.paid ? 'Ya pagó' : participant.is_creator ? 'Anfitrión · falta pagar' : 'Falta pagar'}
+          {participant.is_creator ? 'Anfitrión · recibe los pagos' : participant.paid ? 'Ya pagó' : 'Falta pagar'}
         </Text>
       </View>
       <Text style={styles.participantShare}>{formatCents(participant.share_cents)}</Text>

@@ -52,7 +52,8 @@
           "faceIDPermission": "Usa Face ID para proteger el acceso a tu cuenta."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

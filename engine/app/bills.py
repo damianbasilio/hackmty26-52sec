@@ -22,7 +22,7 @@ from .enrichment import normalize_merchant
 from .models import Merchant, Transaction
 from .subscriptions_engine import detect_subscriptions, reconcile_with_bills
 
-# nessie_sync._map_account ids a synced account "acc_nessie_<nessie id>"
+# nessie_sync.map_account ids a synced account "acc_nessie_<nessie id>"
 _NESSIE_ACCOUNT_ID_PREFIX = "acc_nessie_"
 
 

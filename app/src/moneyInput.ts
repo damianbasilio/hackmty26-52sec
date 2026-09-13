@@ -20,6 +20,15 @@ export function withCents(value: string): string {
   return `${whole || '0'}.${decimal.padEnd(2, '0')}`;
 }
 
+/**
+ * Tope del TextInput. Con dos centavos escritos el teclado ya no acepta un
+ * tercero: antes aparecía un instante y normalizeMoneyInput lo borraba.
+ */
+export function moneyMaxLength(value: string): number {
+  const dot = value.indexOf('.');
+  return dot === -1 ? 10 : dot + 3;
+}
+
 export function moneyInputToCents(value: string): number {
   const [whole = '0', decimal = ''] = value.split('.');
   const wholeCents = Number(whole || '0') * 100;

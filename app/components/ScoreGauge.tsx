@@ -139,8 +139,12 @@ export function ScoreGauge({ score }: { score: CashflowScore }) {
       </View>
 
       {delta !== null && (
-        <Text style={[styles.delta, { color: delta >= 0 ? palette.positive : palette.danger }]}>
-          {delta >= 0 ? '↑ +' : '↓ −'}{Math.abs(delta)} pts
+        <Text
+          style={[
+            styles.delta,
+            { color: delta > 0 ? palette.positive : delta < 0 ? palette.danger : palette.muted },
+          ]}>
+          {delta > 0 ? `↑ +${delta} pts` : delta < 0 ? `↓ −${Math.abs(delta)} pts` : 'Sin cambios'}
         </Text>
       )}
     </View>

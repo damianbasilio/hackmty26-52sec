@@ -478,6 +478,10 @@ def insert_transfer(row: dict) -> dict:
     return _insert("transfers", row)
 
 
+def insert_account(row: dict) -> dict:
+    return _insert("accounts", row)
+
+
 def update_transfer(transfer_id: str, fields: dict) -> dict:
     res = get_client().table("transfers").update(fields).eq("id", transfer_id).execute()
     return res.data[0]
