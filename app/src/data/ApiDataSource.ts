@@ -1,11 +1,18 @@
 import type {
   Account,
   AnomalyAlert,
+  CashflowForecast,
   CashflowScore,
   Customer,
   EnrichedTransaction,
+  IssuedChallenge,
   SavingsRule,
+  Shield,
+  ShieldAlert,
+  ShieldResolution,
   Subscription,
+  Verification,
+  VerificationPurpose,
 } from '@contracts/types';
 import type { PostgrestError } from '@supabase/supabase-js';
 
@@ -79,7 +86,7 @@ export class ApiDataSource implements DataSource {
   constructor(private readonly baseUrl: string) {}
 
   private async request<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PATCH',
     path: string,
     params: Record<string, string | number | boolean | undefined> = {},
     body?: unknown,
@@ -418,5 +425,45 @@ export class ApiDataSource implements DataSource {
     return () => {
       supabase.removeChannel(channel);
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Mi dinero y Escudo. El estado del Escudo vive en la memoria del engine.
+  // -------------------------------------------------------------------------
+
+  getForecast(accountId: string): Promise<CashflowForecast> {
+    return this.get<CashflowForecast>('/forecast', { account_id: accountId });
+  }
+
+  getShield(): Promise<Shield> {
+    return this.get<Shield>('/shield');
+  }
+
+  getShieldAlerts(includeResolved = false): Promise<ShieldAlert[]> {
+    return this.get<ShieldAlert[]>('/shield/alerts', { include_resolved: includeResolved });
+  }
+
+  resolveShieldAlert(
+    alertId: string,
+    resolution: NonNullable<ShieldAlert['resolution']>,
+    verification?: Verification,
+  ): Promise<ShieldResolution> {
+    return this.request<ShieldResolution>('POST', `/shield/alerts/${alertId}/resolve`, {}, { resolution, ...verification });
+  }
+
+  lockCard(): Promise<Shield> {
+    return this.post<Shield>('/shield/lock-card');
+  }
+
+  releaseShield(verification: Verification): Promise<Shield> {
+    return this.request<Shield>('POST', '/shield/release', {}, verification);
+  }
+
+  setAutoProtect(enabled: boolean, verification?: Verification): Promise<Shield> {
+    return this.request<Shield>('PATCH', '/shield/settings', {}, { auto_protect: enabled, ...verification });
+  }
+
+  requestChallenge(purpose: VerificationPurpose, target: string): Promise<IssuedChallenge> {
+    return this.request<IssuedChallenge>('POST', '/shield/challenges', {}, { purpose, target });
   }
 }
