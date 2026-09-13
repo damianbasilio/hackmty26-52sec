@@ -117,7 +117,14 @@ export class FixtureDataSource implements DataSource {
 
   async getAccounts(): Promise<Account[]> {
     // Copia: con la misma referencia los useMemo no ven la cuenta nueva.
-    return [...accounts];
+    // El abono de una transferencia a cuenta propia se suma aquí; el cargo lo
+    // aplica la pantalla con outgoingCents. Sin esto el dinero desaparecía.
+    return accounts.map((account) => {
+      const incoming = sentTransfers
+        .filter((transfer) => transfer.payee_account_id === account.id)
+        .reduce((sum, transfer) => sum + transfer.amount_cents, 0);
+      return incoming === 0 ? { ...account } : { ...account, balance_cents: account.balance_cents + incoming };
+    });
   }
 
   async getTransactions({ accountId, from, to, limit }: TransactionQuery): Promise<EnrichedTransaction[]> {
