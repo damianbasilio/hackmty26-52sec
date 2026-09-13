@@ -1,14 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -23,6 +16,7 @@ import Animated, {
 
 import { useAuth } from '@/components/AuthProvider';
 import { Card } from '@/components/Card';
+import { FormScroll } from '@/components/FormScroll';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
@@ -30,7 +24,7 @@ import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { dataSource, dataSourceMode, sharesFor, type Split, type SplitParticipant } from '@/src/data';
 import { formatCents } from '@/src/format';
-import { moneyInputToCents, normalizeMoneyInput } from '@/src/moneyInput';
+import { moneyInputToCents, normalizeMoneyInput, withCents } from '@/src/moneyInput';
 import { nearbySplit, type NearbyStatus } from '@/modules/expo-nearby-split';
 
 type Step = 'amount' | 'join' | 'room';
@@ -219,14 +213,10 @@ export default function DividirGastoScreen() {
 
   return (
     <PremiumSurface>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}>
+      <FormScroll contentContainerStyle={styles.content}>
           <View style={styles.header}>
             <MotionPressable accessibilityLabel="Regresar" hitSlop={10} onPress={goBack} style={styles.backButton}>
-              <Text style={[styles.backGlyph, { color: palette.accentDeep }]}>‹</Text>
+              <SymbolView name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }} tintColor={palette.ink} size={20} />
             </MotionPressable>
             <Text style={styles.title}>Dividir gasto</Text>
             <View style={styles.headerSpacer} />
@@ -239,6 +229,7 @@ export default function DividirGastoScreen() {
               amount={amount}
               busy={busy}
               preview={preview}
+              onAmountBlur={() => setAmount((current) => withCents(current))}
               onAmountChange={(value) => setAmount(normalizeMoneyInput(value))}
               onContinue={createSplit}
               onJoin={() => {
@@ -274,8 +265,7 @@ export default function DividirGastoScreen() {
           ) : null}
 
           {message ? <Message text={message} /> : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
     </PremiumSurface>
   );
 }
@@ -304,6 +294,7 @@ function AmountStep({
   amount,
   busy,
   preview,
+  onAmountBlur,
   onAmountChange,
   onContinue,
   onJoin,
@@ -311,6 +302,7 @@ function AmountStep({
   amount: string;
   busy: boolean;
   preview: number[];
+  onAmountBlur: () => void;
   onAmountChange: (value: string) => void;
   onContinue: () => void;
   onJoin: () => void;
@@ -341,6 +333,7 @@ function AmountStep({
             <TextInput
               accessibilityLabel="Total del gasto"
               keyboardType="decimal-pad"
+              onBlur={onAmountBlur}
               onChangeText={onAmountChange}
               placeholder="0.00"
               placeholderTextColor={palette.muted}
@@ -368,7 +361,7 @@ function AmountStep({
         accessibilityRole="button"
         disabled={busy}
         onPress={onContinue}
-        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+        style={[styles.primaryButton, { backgroundColor: palette.primary, opacity: busy ? 0.55 : 1 }]}>
         <Text style={styles.primaryLabel}>{busy ? 'Creando…' : 'Crear división'}</Text>
       </MotionPressable>
 
@@ -452,7 +445,7 @@ function JoinStep({
         accessibilityRole="button"
         disabled={busy}
         onPress={onJoin}
-        style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+        style={[styles.primaryButton, { backgroundColor: palette.primary, opacity: busy ? 0.55 : 1 }]}>
         <Text style={styles.primaryLabel}>{busy ? 'Uniéndote…' : 'Unirme a la división'}</Text>
       </MotionPressable>
     </Animated.View>
@@ -571,7 +564,7 @@ function RoomStep({
             accessibilityRole="button"
             disabled={busy}
             onPress={onPay}
-            style={[styles.primaryButton, { backgroundColor: palette.accentDeep, opacity: busy ? 0.55 : 1 }]}>
+            style={[styles.primaryButton, { backgroundColor: palette.primary, opacity: busy ? 0.55 : 1 }]}>
             <Text style={styles.primaryLabel}>
               {busy ? 'Enviando…' : `Pagar ${formatCents(me.share_cents)}`}
             </Text>
@@ -699,11 +692,9 @@ function Message({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 52, gap: 18 },
   header: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
-  backGlyph: { fontSize: 38, lineHeight: 40, fontWeight: '300' },
   headerSpacer: { width: 42 },
   title: { fontSize: 18, fontWeight: '700' },
   demoBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 13, paddingVertical: 11 },

@@ -1,10 +1,10 @@
 import type { Subscription, SubscriptionCadence, SubscriptionStatus } from '@contracts/types';
 import { StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
 import { MotionPressable } from '@/components/Motion';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
+import { Chevron, Collapsible } from '@/components/ui';
 import { daysFromToday, formatCents, formatLongDay } from '@/src/format';
 
 const CADENCE_ES: Record<SubscriptionCadence, string> = {
@@ -53,9 +53,7 @@ export function SubscriptionCard({
     : statusLabel ?? CADENCE_ES[subscription.cadence];
 
   return (
-    <Animated.View
-      layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
-      style={!isLast ? [styles.item, { borderBottomColor: palette.border }] : styles.item}>
+    <View style={!isLast ? [styles.item, { borderBottomColor: palette.border }] : null}>
       <MotionPressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -89,8 +87,9 @@ export function SubscriptionCard({
         </View>
 
         <View style={styles.identity}>
-          <Text style={styles.merchant}>{subscription.merchant_display_name}</Text>
+          <Text numberOfLines={1} style={styles.merchant}>{subscription.merchant_display_name}</Text>
           <Text
+            numberOfLines={1}
             style={[
               styles.subtitle,
               {
@@ -108,21 +107,19 @@ export function SubscriptionCard({
           </Text>
           <Text style={[styles.cadence, { color: palette.muted }]}>{CADENCE_ES[subscription.cadence]}</Text>
         </View>
-        <Text style={[styles.chevron, { color: palette.muted }]}>{expanded ? '⌄' : '›'}</Text>
+        <Chevron direction={expanded ? 'down' : 'right'} />
       </MotionPressable>
 
-      {expanded && (
-        <Animated.View
-          entering={FadeInDown.duration(200).reduceMotion(ReduceMotion.System)}
-          style={[styles.details, { backgroundColor: palette.surface }]}>
+      <Collapsible open={expanded}>
+        <View style={[styles.details, { backgroundColor: palette.surface }]}>
           <View style={styles.detailTop}>
             <Text style={[styles.nextCharge, { color: palette.ink }]}>{nextChargeText(subscription.next_charge_on)}</Text>
             <Text style={styles.annual}>{formatCents(subscription.annual_cost_cents)} al año</Text>
           </View>
           <Text style={[styles.explanation, { color: palette.muted }]}>{subscription.explanation}</Text>
-        </Animated.View>
-      )}
-    </Animated.View>
+        </View>
+      </Collapsible>
+    </View>
   );
 }
 
@@ -137,7 +134,6 @@ const styles = StyleSheet.create({
   amountGroup: { alignItems: 'flex-end', gap: 4 },
   amount: { fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
   cadence: { fontSize: 12 },
-  chevron: { width: 12, fontSize: 25, fontWeight: '300', marginLeft: 1 },
   details: { marginHorizontal: 12, marginBottom: 12, borderRadius: 18, padding: 14, gap: 7 },
   detailTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   nextCharge: { flex: 1, fontSize: 12, fontWeight: '600' },

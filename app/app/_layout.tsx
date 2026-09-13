@@ -1,6 +1,8 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
+import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/components/AuthProvider';
@@ -29,6 +31,15 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  // Saldos, comprobantes y la clave dinámica no deben terminar en una captura.
+  // Solo nativo: en web el módulo no existe y el hook deja una promesa rechazada.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    preventScreenCaptureAsync().catch(() => undefined);
+    return () => {
+      allowScreenCaptureAsync().catch(() => undefined);
+    };
+  }, []);
 
   return (
     <AuthProvider>
@@ -40,6 +51,7 @@ function RootLayoutNav() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="transferencias" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="dividir-gasto" options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="clave-dinamica" options={{ animation: 'slide_from_right' }} />
           </Stack>
         </ThemeProvider>
       </BankingProvider>

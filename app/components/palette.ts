@@ -16,6 +16,9 @@ export type Palette = {
   accent: string;
   accentDeep: string;
   accentSoft: string;
+  /** Fondo de botones principales. accentDeep se aclara en oscuro y el texto blanco dejaba de leerse. */
+  primary: string;
+  onPrimary: string;
   positive: string;
   positiveSoft: string;
   warning: string;
@@ -41,6 +44,8 @@ const PALETTES: Record<'light' | 'dark', Palette> = {
     accent: '#005A91',
     accentDeep: '#001A3D',
     accentSoft: '#E5F0F7',
+    primary: '#0B6BA8',
+    onPrimary: '#FFFFFF',
     positive: '#087A46',
     positiveSoft: '#DFF1E6',
     warning: '#95600B',
@@ -64,6 +69,8 @@ const PALETTES: Record<'light' | 'dark', Palette> = {
     accent: '#70BCE5',
     accentDeep: '#D5EEFB',
     accentSoft: '#173548',
+    primary: '#1D7DBD',
+    onPrimary: '#FFFFFF',
     positive: '#65CE98',
     positiveSoft: '#1B3B2B',
     warning: '#E5B56B',

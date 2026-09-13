@@ -9,7 +9,7 @@ import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
-import { EmptyState, SectionTitle } from '@/components/ui';
+import { Chevron, EmptyState, SectionTitle } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
@@ -93,7 +93,7 @@ export default function SuscripcionesScreen() {
                   <Text style={{ color: palette.danger }}>{formatCents(Math.abs(increase))}</Text>
                 </Text>
                 <Text style={[styles.review, { color: palette.danger }]}>Revisar</Text>
-                <Text style={[styles.chevron, { color: palette.muted }]}>›</Text>
+                <Chevron direction={expandedId === spotlight.id ? 'down' : 'right'} />
               </MotionPressable>
             )}
           </View>
@@ -161,7 +161,6 @@ const styles = StyleSheet.create({
   alertIconText: { fontSize: 24, fontWeight: '600' },
   alertText: { flex: 1, fontSize: 14, fontWeight: '600' },
   review: { fontSize: 13, fontWeight: '600' },
-  chevron: { fontSize: 24, fontWeight: '300' },
   section: { gap: 12 },
   subscriptionList: { padding: 6, gap: 0 },
   detailTitle: { fontSize: 16, fontWeight: '700' },

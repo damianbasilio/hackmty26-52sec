@@ -99,6 +99,18 @@ export function describeSupabaseError(error: unknown): string {
   if (message.includes('email not confirmed')) {
     return 'Tu correo todavía no está confirmado.';
   }
+  if (message.includes('already registered') || message.includes('already been registered')) {
+    return 'Ese correo ya tiene una cuenta. Inicia sesión.';
+  }
+  if (message.includes('password should be') || message.includes('weak password')) {
+    return 'Tu contraseña es muy débil. Usa al menos 8 caracteres.';
+  }
+  if (message.includes('signups not allowed') || message.includes('signup is disabled')) {
+    return 'El registro de cuentas está deshabilitado por ahora.';
+  }
+  if (message.includes('invalid email') || message.includes('unable to validate email')) {
+    return 'Revisa el formato de tu correo.';
+  }
   if (message.includes('too many requests') || message.includes('rate limit')) {
     return 'Demasiados intentos. Espera un momento antes de volver a probar.';
   }
