@@ -87,6 +87,9 @@ export default function DividirGastoScreen() {
   // El código expira; sin este tic la pantalla anunciaría un código muerto.
   useEffect(() => {
     if (step !== 'room') return;
+    // Al entrar, `now` trae la hora en que se monto la pantalla: sin esto el
+    // primer render anuncia mas minutos de los que al codigo le quedan.
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
   }, [step]);
