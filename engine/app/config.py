@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # serves. See repository.fetch_current_customer for the full resolution
     # rule this backs.
     active_customer_id: str = ""
+    # Without a Bearer token the engine answers 401. false brings back the
+    # single-customer resolution above, for curl and local demos.
+    engine_require_auth: bool = True
 
     engine_port: int = 8000
     # Comma-separated origins allowed to call the engine from a browser.

@@ -38,7 +38,7 @@ const enriched = read('enriched_transactions');
 const parts = [
   'begin;',
   insert('customers', ['id', 'auth_user_id', 'first_name', 'last_name', 'email', 'phone', 'nessie_customer_id', 'created_at'], read('customers')),
-  insert('accounts', ['id', 'customer_id', 'nickname', 'type', 'last_four', 'balance_cents', 'currency', 'nessie_account_id', 'created_at'], read('accounts')),
+  insert('accounts', ['id', 'customer_id', 'nickname', 'type', 'last_four', 'clabe', 'balance_cents', 'currency', 'nessie_account_id', 'created_at'], read('accounts')),
   insert('merchants', ['id', 'normalized_name', 'display_name', 'category', 'raw_descriptor_samples', 'is_recurring_biller', 'logo_url'], read('merchants')),
   insert('transactions', ['id', 'account_id', 'amount_cents', 'currency', 'type', 'status', 'raw_description', 'occurred_at', 'nessie_transaction_id', 'created_at'], read('transactions')),
   insert('subscriptions', ['id', 'account_id', 'merchant_id', 'cadence', 'amount_cents', 'previous_amount_cents', 'price_delta_cents', 'price_increase_detected', 'first_charge_at', 'last_charge_at', 'next_charge_on', 'occurrence_count', 'confidence', 'status', 'annual_cost_cents', 'explanation'], read('subscriptions')),

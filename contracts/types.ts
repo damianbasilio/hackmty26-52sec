@@ -55,8 +55,13 @@ export interface Account {
   /** Display nickname shown in the UI, es-MX. */
   nickname: string;
   type: AccountType;
-  /** Last 4 digits only; we never store a full number. */
+  /** Last 4 digits of the account number, also digits 14-17 of the CLABE. */
   last_four: string;
+  /**
+   * 18-digit CLABE, unique across every customer: what other people transfer to.
+   * Derived from the Nessie account number. Null only on an account not in Nessie.
+   */
+  clabe: string | null;
   balance_cents: Cents;
   currency: Currency;
   nessie_account_id: Id | null;

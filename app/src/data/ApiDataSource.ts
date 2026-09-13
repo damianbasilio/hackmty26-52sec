@@ -21,7 +21,7 @@ import type {
   TransferRecipient,
 } from './DataSource';
 import { splitShareTransferId } from './DataSource';
-import { getSupabase } from '../supabase';
+import { getSupabase, supabase } from '../supabase';
 
 /** Un engine colgado no debe dejar la pantalla cargando para siempre. */
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -92,15 +92,19 @@ export class ApiDataSource implements DataSource {
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
       .join('&');
     const url = `${this.baseUrl.replace(/\/+$/, '')}${path}${query ? `?${query}` : ''}`;
+    // El engine sabe quién eres por este token, no por un cliente fijo: sin él responde 401.
+    const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(url, {
         method,
-        headers: body === undefined
-          ? { accept: 'application/json' }
-          : { accept: 'application/json', 'content-type': 'application/json' },
+        headers: {
+          accept: 'application/json',
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
       });
@@ -184,20 +188,22 @@ export class ApiDataSource implements DataSource {
         name: account.nickname,
         bank: 'Capital One',
         last_four: account.last_four,
+        clabe: account.clabe,
         account_id: account.id,
       }));
 
-    const seen = new Set(recipients.map((r) => `${r.name}|${r.last_four ?? ''}`));
+    // Solo se vuelve a enviar a quien tiene CLABE guardada: un nombre y cuatro dígitos no llegan a ninguna cuenta.
+    const seen = new Set(recipients.map((r) => r.clabe));
     for (const transfer of previous) {
-      const key = `${transfer.payee_name}|${transfer.payee_last_four ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (!transfer.payee_clabe || seen.has(transfer.payee_clabe)) continue;
+      seen.add(transfer.payee_clabe);
       recipients.push({
-        id: `payee_${key}`,
+        id: `payee_${transfer.payee_clabe}`,
         name: transfer.payee_name,
         bank: transfer.payee_bank,
         last_four: transfer.payee_last_four,
-        account_id: transfer.payee_account_id,
+        clabe: transfer.payee_clabe,
+        account_id: null,
       });
     }
     return recipients;
@@ -215,7 +221,9 @@ export class ApiDataSource implements DataSource {
       {
         id: draft.id,
         account_id: draft.accountId,
-        payee_account_id: draft.recipient.account_id,
+        // Con CLABE el engine encuentra la cuenta; el id solo vale para cuentas propias.
+        payee_account_id: draft.recipient.clabe ? null : draft.recipient.account_id,
+        payee_clabe: draft.recipient.clabe,
         payee_name: draft.recipient.name,
         payee_bank: draft.recipient.bank,
         payee_last_four: draft.recipient.last_four,
@@ -244,8 +252,7 @@ export class ApiDataSource implements DataSource {
     const supabase = getSupabase();
     const createdBy = await this.currentCustomerId();
     const splitId = newId('spl');
-    // ponytail: el engine sirve un solo cliente, así que su accountId puede no
-    // ser tuyo y la RLS rechazaría el insert. Se valida contra tus cuentas reales.
+    // La RLS rechazaría el insert con una cuenta ajena: se valida contra las tuyas.
     const { data: ownAccounts, error: accountsError } = await supabase.from('accounts').select('id, type');
     if (accountsError) fail(accountsError, 'No pudimos leer tus cuentas.');
     const own = ownAccounts ?? [];
@@ -348,50 +355,28 @@ export class ApiDataSource implements DataSource {
   }
 
   async paySplitShare(splitId: string, participantId: string): Promise<Split> {
-    const supabase = getSupabase();
     const split = await this.getSplit(splitId);
     const person = split.participants.find((candidate) => candidate.id === participantId);
     if (!person) throw new Error('No encontramos tu parte en esta división.');
     if (person.paid) return split;
 
-    // Pagas desde tu propia cuenta. La de la división es la del anfitrión, que
-    // es quien recibe el dinero.
-    const { data: ownAccounts, error: accountsError } = await supabase.from('accounts').select('id, type');
-    if (accountsError) fail(accountsError, 'No pudimos leer tus cuentas.');
-    const payer = (ownAccounts ?? []).find((account) => account.type === 'checking') ?? ownAccounts?.[0];
+    const accounts = await this.getAccounts();
+    const payer = accounts.find((account) => account.type === 'checking') ?? accounts[0];
     if (!payer) throw new Error('No hay ninguna cuenta para pagar tu parte.');
-    const host = split.participants.find((candidate) => candidate.is_creator);
-    // El engine solo deposita en cuentas ligadas a Nessie (acc_nessie_*); con
-    // cualquier otra, el anfitrión cuenta como destinatario externo.
-    const hostAccountId = split.request.account_id.startsWith('acc_nessie_') && split.request.account_id !== payer.id
-      ? split.request.account_id
-      : null;
 
-    // El id sale del participante, no de un random: si la red se cae entre el
-    // envío y el `paid_at` de abajo, el reintento manda exactamente la misma
-    // transferencia y el engine la reconcilia en vez de cobrar la parte otra vez.
-    const transfer = await this.createTransfer({
-      id: splitShareTransferId(participantId),
-      accountId: payer.id,
-      recipient: {
-        id: `split_${split.request.id}`,
-        name: host?.display_name || split.request.title || 'División de gasto',
-        bank: 'Capital One',
-        last_four: null,
-        account_id: hostAccountId,
-      },
-      amountCents: person.share_cents,
-      concept: `Mi parte de la división ${split.request.code}`,
-    });
-
-    // Solo paid_at y transfer_id están concedidas: share_cents no se puede tocar
-    // desde el cliente, así que nadie se baja su parte antes de pagar.
-    const { error } = await supabase
-      .from('split_participants')
-      .update({ paid_at: new Date().toISOString(), transfer_id: transfer.id })
-      .eq('id', participantId);
-    if (error) fail(error, 'No pudimos marcar tu parte como pagada.');
-
+    // La cuenta del anfitrión no es tuya y la RLS no te deja verla: el engine
+    // hace la transferencia hacia ella y marca paid_at en el mismo paso. El id
+    // sale del participante, así un reintento nunca cobra la parte dos veces.
+    const { transfer } = await this.request<{ transfer: Transfer }>(
+      'POST',
+      `/splits/${splitId}/participants/${participantId}/pay`,
+      {},
+      { transfer_id: splitShareTransferId(participantId), account_id: payer.id },
+      TRANSFER_TIMEOUT_MS,
+    );
+    if (transfer.status !== 'completed') {
+      throw new Error(transfer.failure_reason ?? 'No pudimos pagar tu parte.');
+    }
     return this.getSplit(splitId);
   }
 

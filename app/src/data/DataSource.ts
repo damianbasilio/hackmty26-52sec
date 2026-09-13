@@ -26,12 +26,16 @@ export type TransactionQuery = {
  * the engines derive. Shapes mirror the `transfers` table in db/schema.sql.
  */
 
-/** Somewhere money can go. `account_id` is set only for the customer's own accounts. */
+/**
+ * Somewhere money can go. `clabe` is how the engine finds anyone, including
+ * other customers; `account_id` is set only for the customer's own accounts.
+ */
 export type TransferRecipient = {
   id: string;
   name: string;
   bank: string | null;
   last_four: string | null;
+  clabe: string | null;
   account_id: string | null;
 };
 
@@ -42,6 +46,7 @@ export type Transfer = {
   id: string;
   account_id: string;
   payee_account_id: string | null;
+  payee_clabe: string | null;
   payee_name: string;
   payee_bank: string | null;
   payee_last_four: string | null;

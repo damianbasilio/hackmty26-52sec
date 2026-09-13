@@ -150,3 +150,6 @@ def test_detect_route_fails_loudly_when_nessie_bills_are_unreachable(monkeypatch
     res = client.post("/subscriptions/detect", params={"account_id": ACCOUNT_ID})
 
     assert res.status_code == 502
+
+
+pytestmark = pytest.mark.usefixtures("account_owner")

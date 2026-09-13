@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app import repository
@@ -36,3 +37,6 @@ def test_scan_reuses_existing_subscription_id_and_persists_it(monkeypatch, trans
     assert price_hike["id"] == "sub_0002"
     hike_alert = next(a for a in captured["alerts"] if a["subscription_id"] is not None)
     assert hike_alert["subscription_id"] == "sub_0002"
+
+
+pytestmark = pytest.mark.usefixtures("account_owner")

@@ -1,14 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 
-from .. import repository
+from ..auth import current_customer
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 
 @router.get("/me")
-def get_current_customer() -> dict:
+def get_current_customer(customer: dict = Depends(current_customer)) -> dict:
     """Response shape: Customer in /contracts/types.ts."""
-    customer = repository.fetch_current_customer()
-    if customer is None:
-        raise HTTPException(status_code=404, detail="No hay cliente sembrado todavía")
     return customer

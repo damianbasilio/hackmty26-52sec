@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import repository
+from app.routers import accounts as accounts_router
 from app.main import app
 from app.repository import CustomerResolutionError, SupabaseNotConfigured
 
@@ -15,6 +17,13 @@ def _load(name: str):
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def owner(monkeypatch):
+    customer = _load("customers")[0]
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: customer)
+    monkeypatch.setattr(repository, "fetch_account", lambda account_id: {"id": account_id, "customer_id": customer["id"]})
 
 
 def test_customers_me_returns_the_seeded_customer(monkeypatch):
@@ -39,7 +48,7 @@ def test_accounts_returns_the_two_seeded_accounts(monkeypatch):
     customer = _load("customers")[0]
     accounts = _load("accounts")
     monkeypatch.setattr(repository, "fetch_current_customer", lambda: customer)
-    monkeypatch.setattr(repository, "fetch_accounts", lambda customer_id: accounts)
+    monkeypatch.setattr(accounts_router, "ensure_bank_accounts", lambda c: accounts)
 
     res = client.get("/accounts")
 
@@ -101,6 +110,7 @@ def test_missing_supabase_config_returns_503(monkeypatch):
         raise SupabaseNotConfigured()
 
     monkeypatch.setattr(repository, "get_client", raise_not_configured)
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: repository.get_client())
 
     res = client.get("/customers/me")
 

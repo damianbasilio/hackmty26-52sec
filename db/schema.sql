@@ -140,6 +140,14 @@ create table if not exists accounts (
 
 create index if not exists accounts_customer_idx on accounts (customer_id);
 
+-- The 18-digit number other people transfer to. Built by the engine from the
+-- account_number Nessie generates (engine/app/clabe.py); null only on fixture
+-- rows until they get one. Unique, or one CLABE could land in two accounts.
+alter table accounts add column if not exists clabe text;
+alter table accounts drop constraint if exists accounts_clabe_format;
+alter table accounts add constraint accounts_clabe_format check (clabe ~ '^[0-9]{18}$');
+create unique index if not exists accounts_clabe_idx on accounts (clabe);
+
 create table if not exists merchants (
   id text primary key,
   normalized_name text not null unique,
@@ -337,6 +345,12 @@ create table if not exists transfers (
 -- Transfer history on Inicio: one account, newest first.
 create index if not exists transfers_account_created_idx
   on transfers (account_id, created_at desc);
+
+-- What the user typed to reach the payee. Kept so "enviar de nuevo" goes to the
+-- same CLABE instead of guessing from a name and four digits.
+alter table transfers add column if not exists payee_clabe text;
+alter table transfers drop constraint if exists transfers_payee_clabe_format;
+alter table transfers add constraint transfers_payee_clabe_format check (payee_clabe ~ '^[0-9]{18}$');
 
 create table if not exists split_requests (
   id text primary key,
@@ -538,19 +552,15 @@ create policy creator_split_participants_insert on split_participants for insert
     where s.id = split_request_id and public.owns_account(s.account_id)
   ));
 
--- Marking yourself paid. The creator can too, for a guest who paid in cash.
+-- Only the creator marks a share paid by hand, for a guest who paid in cash.
+-- A participant's own share is marked by the engine after the transfer
+-- actually lands: letting them write paid_at meant "paid" without paying.
 drop policy if exists pay_own_share on split_participants;
 create policy pay_own_share on split_participants for update
-  using (
-    customer_id = public.current_customer_id()
-    or exists (select 1 from split_requests s
-               where s.id = split_request_id and public.owns_account(s.account_id))
-  )
-  with check (
-    customer_id = public.current_customer_id()
-    or exists (select 1 from split_requests s
-               where s.id = split_request_id and public.owns_account(s.account_id))
-  );
+  using (exists (select 1 from split_requests s
+                 where s.id = split_request_id and public.owns_account(s.account_id)))
+  with check (exists (select 1 from split_requests s
+                      where s.id = split_request_id and public.owns_account(s.account_id)));
 
 -- RLS gates rows, not columns, and the policy above has to let a participant
 -- update their own row. Without this they could also rewrite share_cents and
@@ -710,8 +720,9 @@ begin
   if target_customer is not null then
     update customers c set auth_user_id = new.id where c.id = target_customer;
   else
-    -- Nobody to claim: a fresh signup gets its own empty customer and checking
-    -- account, or every RLS read and split insert fails for it.
+    -- Nobody to claim: a fresh signup gets its own customer. No account here:
+    -- Nessie is the bank, and the engine opens the checking account there on
+    -- the first GET /accounts, with its real CLABE.
     target_customer := 'cus_' || replace(new.id::text, '-', '');
     insert into customers (id, auth_user_id, first_name, last_name, email)
     values (
@@ -720,14 +731,6 @@ begin
       coalesce(nullif(trim(new.raw_user_meta_data ->> 'first_name'), ''), split_part(new.email, '@', 1)),
       coalesce(trim(new.raw_user_meta_data ->> 'last_name'), ''),
       new.email
-    );
-    insert into accounts (id, customer_id, nickname, type, last_four)
-    values (
-      'acc_checking_' || replace(new.id::text, '-', ''),
-      target_customer,
-      'Cuenta de cheques',
-      'checking',
-      lpad((abs(hashtext(new.id::text)) % 10000)::text, 4, '0')
     );
   end if;
   return new;

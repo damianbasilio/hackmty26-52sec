@@ -71,7 +71,10 @@ class TransferRequest(BaseModel):
     # itself (db/README.md), this is that row's id.
     id: str = Field(pattern=ID_PATTERN)
     account_id: str
+    # Own accounts only. Anyone else is reached by CLABE, which the router
+    # resolves to payee_account_id when the CLABE is ours.
     payee_account_id: str | None = None
+    payee_clabe: str | None = Field(default=None, pattern=r"^[0-9]{18}$")
     payee_name: str = Field(min_length=1, max_length=80)
     payee_bank: str | None = Field(default=None, max_length=80)
     payee_last_four: str | None = Field(default=None, pattern=r"^[0-9]{4}$")
@@ -282,6 +285,7 @@ def _insert_pending(req: TransferRequest, now: datetime) -> dict:
         "id": req.id,
         "account_id": req.account_id,
         "payee_account_id": req.payee_account_id,
+        "payee_clabe": req.payee_clabe,
         "payee_name": req.payee_name,
         "payee_bank": req.payee_bank,
         "payee_last_four": req.payee_last_four,

@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app import repository
@@ -38,3 +39,6 @@ def test_suggest_reuses_existing_subscription_id_no_duplicate_cancel_rule(monkey
     assert res.status_code == 200
     cancel_rules = [r for r in captured["rows"] if r["kind"] == "cancel_subscription"]
     assert cancel_rules == []
+
+
+pytestmark = pytest.mark.usefixtures("account_owner")

@@ -266,6 +266,10 @@ Resumen de quién ve qué, con tres usuarios (A crea, B se une, C es ajeno):
 
 ## `ACTIVE_CUSTOMER_ID`
 
+> **Ya no decide a quién sirve el engine.** Cada petición de la app lleva el token de Supabase y el
+> engine resuelve el cliente por `customers.auth_user_id` (`engine/app/auth.py`). Todo lo de abajo
+> solo aplica con `ENGINE_REQUIRE_AUTH=false`, para `curl` o demos locales sin sesión.
+
 Es del `.env` de la raíz y lo lee el engine, pero se vuelve **obligatorio por culpa de lo que
 hay en la base**, así que va documentado aquí.
 

@@ -54,6 +54,10 @@ def get_customers() -> list[dict]:
     return get("/customers")
 
 
+def get_customer(customer_id: str) -> dict:
+    return get(f"/customers/{customer_id}")
+
+
 def get_accounts_for_customer(customer_id: str) -> list[dict]:
     return get(f"/customers/{customer_id}/accounts")
 

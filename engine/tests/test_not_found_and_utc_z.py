@@ -18,6 +18,12 @@ class NoMatchingRows:
     def update(self, fields):
         return self
 
+    def select(self, *args):
+        return self
+
+    def limit(self, n):
+        return self
+
     def eq(self, field, value):
         return self
 
@@ -27,6 +33,7 @@ class NoMatchingRows:
 
 def test_resolving_an_unknown_alert_is_404_not_500(monkeypatch):
     monkeypatch.setattr(repository, "get_client", lambda: NoMatchingRows())
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: {"id": "cus_0001"})
 
     res = client.post("/anomalies/alr_does_not_exist/resolve", params={"resolution": "dismissed"})
 
@@ -36,6 +43,7 @@ def test_resolving_an_unknown_alert_is_404_not_500(monkeypatch):
 
 def test_activating_an_unknown_savings_rule_is_404_not_500(monkeypatch):
     monkeypatch.setattr(repository, "get_client", lambda: NoMatchingRows())
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: {"id": "cus_0001"})
 
     res = client.post(
         "/savings/rules/svr_does_not_exist/activate", params={"destination_account_id": "acc_savings_0001"}
@@ -64,6 +72,8 @@ def test_nested_rows_and_fractional_seconds_are_normalized(monkeypatch):
         }
     ]
     monkeypatch.setattr(repository, "fetch_enriched_transactions", lambda *args: rows)
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: {"id": "cus_0001"})
+    monkeypatch.setattr(repository, "fetch_account", lambda account_id: {"id": account_id, "customer_id": "cus_0001"})
 
     [row] = client.get("/transactions", params={"account_id": "acc_checking_0001"}).json()
 

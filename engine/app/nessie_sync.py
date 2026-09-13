@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from . import nessie, repository
+from . import clabe, nessie, repository
 from .enrichment import (
     format_mxn,
     local_day_of_week,
@@ -184,6 +184,7 @@ def map_account(customer_id: str, a: dict) -> dict:
         "nickname": a.get("nickname") or "Cuenta Nessie",
         "type": _ACCOUNT_TYPE_MAP.get((a.get("type") or "").lower(), "checking"),
         "last_four": last_four,
+        "clabe": clabe.from_account_number(a.get("account_number")),
         "balance_cents": nessie.to_cents(a.get("balance") or 0),
         "nessie_account_id": nessie_id,
     }
