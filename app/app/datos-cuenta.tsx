@@ -16,7 +16,7 @@ import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { Chevron, Toast } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
-import { demoClabe, formatClabe } from '@/src/clabe';
+import { formatClabe } from '@/src/clabe';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
 
@@ -50,7 +50,7 @@ export default function DatosCuentaScreen() {
   if (!account) return <ErrorState message="No hay cuentas disponibles." onRetry={reload} />;
 
   const holder = `${customer.first_name} ${customer.last_name}`.trim();
-  const clabe = demoClabe(account.id, account.last_four);
+  const { clabe } = account;
 
   async function copy(value: string, label: string) {
     try {
@@ -69,7 +69,7 @@ export default function DatosCuentaScreen() {
         '',
         `Titular: ${holder}`,
         'Banco: Capital One',
-        `CLABE: ${clabe}`,
+        ...(clabe ? [`CLABE: ${clabe}`] : []),
         `Cuenta: ${account.nickname} terminación ${account.last_four}`,
       ].join('\n'),
     }).catch(() => undefined);
@@ -106,14 +106,18 @@ export default function DatosCuentaScreen() {
               <Text style={styles.heroLabel}>CLABE interbancaria</Text>
               <Text numberOfLines={1} style={styles.holder}>{holder}</Text>
             </View>
-            <Text adjustsFontSizeToFit numberOfLines={1} selectable style={styles.clabe}>{formatClabe(clabe)}</Text>
-            <MotionPressable
-              accessibilityRole="button"
-              onPress={() => copy(clabe, 'CLABE')}
-              style={[styles.copyHero, { backgroundColor: palette.accentSoft, borderColor: palette.border }]}>
-              <SymbolView name={{ ios: 'doc.on.doc.fill', android: 'content_copy', web: 'content_copy' }} tintColor={palette.accent} size={16} />
-              <Text style={[styles.copyHeroLabel, { color: palette.accent }]}>Copiar CLABE</Text>
-            </MotionPressable>
+            <Text adjustsFontSizeToFit numberOfLines={1} selectable style={styles.clabe}>
+              {clabe ? formatClabe(clabe) : 'Sin CLABE'}
+            </Text>
+            {clabe ? (
+              <MotionPressable
+                accessibilityRole="button"
+                onPress={() => copy(clabe, 'CLABE')}
+                style={[styles.copyHero, { backgroundColor: palette.accentSoft, borderColor: palette.border }]}>
+                <SymbolView name={{ ios: 'doc.on.doc.fill', android: 'content_copy', web: 'content_copy' }} tintColor={palette.accent} size={16} />
+                <Text style={[styles.copyHeroLabel, { color: palette.accent }]}>Copiar CLABE</Text>
+              </MotionPressable>
+            ) : null}
           </HeroCard>
         </Reveal>
 
@@ -141,8 +145,9 @@ export default function DatosCuentaScreen() {
           <View style={[styles.note, { backgroundColor: palette.warningSoft }]}>
             <SymbolView name={{ ios: 'info.circle.fill', android: 'info', web: 'info' }} tintColor={palette.warning} size={17} />
             <Text style={[styles.noteText, { color: palette.warning }]}>
-              CLABE de demostración: tiene un formato válido para practicar, pero no recibe transferencias reales.
-              Al compartir no se incluye tu saldo.
+              {clabe
+                ? 'Con esta CLABE cualquier persona puede transferirte. Al compartir no se incluye tu saldo.'
+                : 'Esta cuenta no está abierta en el banco, así que no tiene CLABE para recibir transferencias.'}
             </Text>
           </View>
         </Reveal>

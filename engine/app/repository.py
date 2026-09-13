@@ -10,6 +10,7 @@ from functools import lru_cache
 
 from postgrest.exceptions import APIError
 from supabase import Client, create_client
+from supabase_auth.errors import AuthError
 
 from .config import get_settings
 from .enrichment import normalize_merchant
@@ -100,6 +101,33 @@ def fetch_current_customer() -> dict | None:
 
     oldest = _unquarantined_customers(limit=1)
     return oldest[0] if oldest else None
+
+
+def fetch_auth_user_id(token: str) -> str | None:
+    """Supabase verifies the session token itself, whatever key signed it."""
+    try:
+        res = get_client().auth.get_user(token)
+    except AuthError:
+        return None
+    return res.user.id if res and res.user else None
+
+
+def fetch_customer_by_auth_user(auth_user_id: str) -> dict | None:
+    res = (
+        get_client()
+        .table("customers")
+        .select("*")
+        .eq("auth_user_id", auth_user_id)
+        .is_("excluded_at", "null")
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def update_customer(customer_id: str, fields: dict) -> dict:
+    res = get_client().table("customers").update(fields).eq("id", customer_id).execute()
+    return res.data[0]
 
 
 def _unquarantined_customers(like_prefix: str | None = None, limit: int | None = None) -> list[dict]:
@@ -196,6 +224,27 @@ def fetch_account(account_id: str) -> dict | None:
         .execute()
     )
     return res.data[0] if res.data else None
+
+
+def fetch_account_by_clabe(clabe: str) -> dict | None:
+    res = get_client().table("accounts").select("*").eq("clabe", clabe).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def update_account(account_id: str, fields: dict) -> dict:
+    res = get_client().table("accounts").update(fields).eq("id", account_id).execute()
+    return res.data[0]
+
+
+def delete_account(account_id: str) -> None:
+    get_client().table("accounts").delete().eq("id", account_id).execute()
+
+
+def account_has_activity(account_id: str) -> bool:
+    for table in ("transactions", "transfers"):
+        if get_client().table(table).select("id").eq("account_id", account_id).limit(1).execute().data:
+            return True
+    return False
 
 
 def fetch_savings_account_id(customer_id: str) -> str | None:
@@ -358,6 +407,11 @@ def upsert_anomaly_alerts(rows: list[dict]) -> list[dict]:
     return res.data
 
 
+def fetch_anomaly_alert(alert_id: str) -> dict | None:
+    res = get_client().table("anomaly_alerts").select("*").eq("id", alert_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
 def resolve_anomaly_alert(alert_id: str, resolution: str, resolved_at: str) -> dict | None:
     res = (
         get_client()
@@ -410,6 +464,11 @@ def upsert_savings_rules(rows: list[dict]) -> list[dict]:
         return []
     res = get_client().table("savings_rules").upsert(rows, on_conflict="id").execute()
     return res.data
+
+
+def fetch_savings_rule(rule_id: str) -> dict | None:
+    res = get_client().table("savings_rules").select("*").eq("id", rule_id).limit(1).execute()
+    return res.data[0] if res.data else None
 
 
 def activate_savings_rule(rule_id: str, destination_account_id: str, activated_at: str) -> dict | None:

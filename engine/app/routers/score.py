@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import repository
+from ..auth import owned_account_id
 from ..models import parse_iso
 from ..score_engine import compute_score
 
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/score", tags=["score"])
 
 
 @router.get("")
-def get_score(account_id: str) -> dict:
+def get_score(account_id: str = Depends(owned_account_id)) -> dict:
     """Latest cashflow health score. Response shape: CashflowScore in /contracts/types.ts."""
     latest = repository.fetch_latest_cashflow_score(account_id)
     if latest is None:
@@ -19,7 +20,7 @@ def get_score(account_id: str) -> dict:
 
 
 @router.post("/compute")
-def compute(account_id: str) -> dict:
+def compute(account_id: str = Depends(owned_account_id)) -> dict:
     """Recompute the 300-850 score plus its weighted component breakdown."""
     account = repository.fetch_account(account_id)
     if account is None:

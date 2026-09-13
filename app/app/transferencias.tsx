@@ -21,6 +21,7 @@ import { usePalette } from '@/components/palette';
 import { TRANSFER_STATUS_LABELS as STATUS_LABELS, shareReceipt, transferReceipt } from '@/components/receipt';
 import { Chevron } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
+import { bankForClabe, clabeLastFour, formatClabe, isValidClabe } from '@/src/clabe';
 import { dataSource } from '@/src/data';
 import { newTransferId, type Transfer, type TransferRecipient } from '@/src/data/DataSource';
 import { formatCents } from '@/src/format';
@@ -59,8 +60,7 @@ export default function TransferenciasScreen() {
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [payeeName, setPayeeName] = useState('');
-  const [payeeBank, setPayeeBank] = useState('');
-  const [payeeLastFour, setPayeeLastFour] = useState('');
+  const [payeeClabe, setPayeeClabe] = useState('');
   const [amount, setAmount] = useState('');
   const [concept, setConcept] = useState('');
   const [pin, setPin] = useState('');
@@ -87,6 +87,7 @@ export default function TransferenciasScreen() {
 
   // Tus otras cuentas salen de la lista de cuentas: cambian con el origen elegido.
   const ownIds = new Set(accounts.map((account) => account.id));
+  const ownClabes = new Set(accounts.map((account) => account.clabe).filter(Boolean));
   const payees: TransferRecipient[] = [
     ...accounts
       .filter((account) => account.id !== source.id)
@@ -95,19 +96,24 @@ export default function TransferenciasScreen() {
         name: account.nickname,
         bank: 'Capital One',
         last_four: account.last_four,
+        clabe: account.clabe,
         account_id: account.id,
       })),
-    ...recipients.filter((item) => !item.account_id || !ownIds.has(item.account_id)),
+    ...recipients.filter((item) =>
+      !(item.account_id && ownIds.has(item.account_id)) && !(item.clabe && ownClabes.has(item.clabe))),
   ];
 
+  const clabeComplete = payeeClabe.length === 18;
+  const clabeValid = clabeComplete && isValidClabe(payeeClabe);
   const addingPayee = selectedId === NEW_PAYEE_ID || payees.length === 0;
   const recipient: TransferRecipient | null = addingPayee
     ? payeeName.trim().length > 0
       ? {
           id: NEW_PAYEE_ID,
           name: payeeName.trim(),
-          bank: payeeBank.trim() || null,
-          last_four: payeeLastFour.length === 4 ? payeeLastFour : null,
+          bank: clabeValid ? bankForClabe(payeeClabe) : null,
+          last_four: clabeValid ? clabeLastFour(payeeClabe) : null,
+          clabe: clabeValid ? payeeClabe : null,
           account_id: null,
         }
       : null
@@ -121,8 +127,16 @@ export default function TransferenciasScreen() {
       setMessage('Escribe a quién le vas a transferir.');
       return;
     }
-    if (addingPayee && payeeLastFour.length > 0 && payeeLastFour.length !== 4) {
-      setMessage('Los últimos 4 dígitos deben ser exactamente cuatro.');
+    if (addingPayee && !clabeComplete) {
+      setMessage('Escribe los 18 dígitos de la CLABE de quien recibe.');
+      return;
+    }
+    if (addingPayee && !clabeValid) {
+      setMessage('Esa CLABE no es válida. Revisa los dígitos con quien te la dio.');
+      return;
+    }
+    if (recipient.clabe && recipient.clabe === source.clabe) {
+      setMessage('No puedes transferir a la misma cuenta de origen.');
       return;
     }
     if (amountCents <= 0) {
@@ -293,8 +307,8 @@ export default function TransferenciasScreen() {
               </View>
               {payees.length === 0 ? (
                 <Text style={[styles.emptyHint, { color: palette.muted }]}>
-                  Todavía no le has transferido a nadie. Escribe los datos de quien recibe y
-                  quedará guardado para la próxima.
+                  Todavía no le has transferido a nadie. Escribe el nombre y la CLABE de quien
+                  recibe y quedará guardado para la próxima.
                 </Text>
               ) : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recipientList}>
@@ -355,33 +369,29 @@ export default function TransferenciasScreen() {
               {addingPayee ? (
                 <Card style={styles.payeeCard}>
                   <TextInput
-                    accessibilityLabel="Nombre de quien recibe"
+                    accessibilityLabel="Nombre del beneficiario"
                     maxLength={60}
                     onChangeText={setPayeeName}
-                    placeholder="Nombre de quien recibe"
+                    placeholder="Nombre del beneficiario"
                     placeholderTextColor={palette.muted}
                     style={[styles.payeeInput, { color: palette.ink, borderBottomColor: palette.border }]}
                     value={payeeName}
                   />
                   <TextInput
-                    accessibilityLabel="Banco"
-                    maxLength={40}
-                    onChangeText={setPayeeBank}
-                    placeholder="Banco (opcional)"
-                    placeholderTextColor={palette.muted}
-                    style={[styles.payeeInput, { color: palette.ink, borderBottomColor: palette.border }]}
-                    value={payeeBank}
-                  />
-                  <TextInput
-                    accessibilityLabel="Últimos 4 dígitos de la cuenta"
+                    accessibilityLabel="CLABE de 18 dígitos"
                     keyboardType="number-pad"
-                    maxLength={4}
-                    onChangeText={(value) => setPayeeLastFour(value.replace(/\D/g, ''))}
-                    placeholder="Últimos 4 dígitos (opcional)"
+                    maxLength={18}
+                    onChangeText={(value) => setPayeeClabe(value.replace(/\D/g, ''))}
+                    placeholder="CLABE (18 dígitos)"
                     placeholderTextColor={palette.muted}
-                    style={[styles.payeeInput, styles.payeeInputLast, { color: palette.ink }]}
-                    value={payeeLastFour}
+                    style={[styles.payeeInput, styles.payeeInputLast, { color: palette.ink, fontVariant: ['tabular-nums'] }]}
+                    value={payeeClabe}
                   />
+                  {clabeComplete ? (
+                    <Text style={[styles.clabeHint, { color: clabeValid ? palette.muted : palette.danger }]}>
+                      {clabeValid ? `${bankForClabe(payeeClabe)} · cuenta ·· ${clabeLastFour(payeeClabe)}` : 'El dígito verificador no coincide.'}
+                    </Text>
+                  ) : null}
                 </Card>
               ) : null}
             </Reveal>
@@ -451,6 +461,7 @@ export default function TransferenciasScreen() {
             </Card>
 
             <Card>
+              {recipient?.clabe ? <SummaryRow label="CLABE destino" value={formatClabe(recipient.clabe)} /> : null}
               <SummaryRow label="Cuenta origen" value={`${source.nickname} ·· ${source.last_four}`} />
               <SummaryRow label="Concepto" value={concept.trim() || 'Transferencia'} />
             </Card>
@@ -560,6 +571,7 @@ const styles = StyleSheet.create({
   payeeCard: { gap: 0, paddingVertical: 4 },
   payeeInput: { minHeight: 50, fontSize: 15, borderBottomWidth: StyleSheet.hairlineWidth },
   payeeInputLast: { borderBottomWidth: 0 },
+  clabeHint: { fontSize: 12, paddingBottom: 10 },
   amountCard: { minHeight: 214, gap: 9 },
   amountLabel: { fontSize: 15, fontWeight: '500' },
   amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 2, backgroundColor: 'transparent' },

@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import nessie, nessie_sync, repository
+from app import clabe, nessie, nessie_sync, repository
 from app.enrichment import normalize_merchant
 from app.main import app
 from app.routers import transfers as transfers_router
@@ -24,8 +24,11 @@ PAYEE = {
     "customer_id": "cus_nessie_beto",
     "nessie_account_id": "n_payee",
     "last_four": "2222",
+    "clabe": clabe.from_account_number("5550000000002222"),
     "balance_cents": 0,
 }
+BBVA_FIRST17 = "01258000000003390"
+BBVA_CLABE = f"{BBVA_FIRST17}{clabe.check_digit(BBVA_FIRST17)}"
 # The fixture account carries a fabricated nessie_account_id, like the fixture customer.
 FIXTURE_ACCOUNT = {
     "id": "acc_checking_0001",
@@ -60,6 +63,11 @@ class World:
         m.setattr(transfers_router, "get_settings", lambda: SimpleNamespace(nessie_api_key="k"))
         m.setattr(repository, "fetch_current_customer", lambda: {"id": CUSTOMER_ID})
         m.setattr(repository, "fetch_account", lambda account_id: self.accounts.get(account_id))
+        m.setattr(
+            repository,
+            "fetch_account_by_clabe",
+            lambda value: next((a for a in self.accounts.values() if a.get("clabe") == value), None),
+        )
         m.setattr(
             repository,
             "fetch_customer",
@@ -157,7 +165,7 @@ def _body(**overrides):
     body = {
         "id": "trf_test_0001",
         "account_id": PAYER["id"],
-        "payee_account_id": PAYEE["id"],
+        "payee_clabe": PAYEE["clabe"],
         "payee_name": "Beto Garza",
         "amount_cents": 25050,
         "concept": "Tacos",
@@ -237,7 +245,7 @@ def test_pending_transfers_hold_their_funds(world):
 
 
 def test_external_payee_records_only_the_payer_side(world):
-    res = client.post("/transfers", json=_body(payee_account_id=None, payee_bank="BBVA", payee_last_four="3390"))
+    res = client.post("/transfers", json=_body(payee_clabe=BBVA_CLABE))
 
     assert res.status_code == 200
     receipt = res.json()
@@ -266,7 +274,7 @@ def test_fixture_accounts_cannot_move_real_money(world):
 
 
 def test_cannot_send_from_another_customers_account(world):
-    res = client.post("/transfers", json=_body(account_id=PAYEE["id"], payee_account_id=PAYER["id"]))
+    res = client.post("/transfers", json=_body(account_id=PAYEE["id"], payee_clabe=None, payee_account_id=PAYER["id"]))
 
     assert res.status_code == 422
     assert world.withdrawals["n_payee"] == []
@@ -333,6 +341,51 @@ def test_accounts_report_balance_after_transfers(world, monkeypatch):
 
     assert balances[PAYER["id"]] == 100000 - 25050
     assert balances[FIXTURE_ACCOUNT["id"]] == FIXTURE_ACCOUNT["balance_cents"]
+
+
+def test_external_clabe_is_labeled_with_its_bank(world):
+    receipt = client.post("/transfers", json=_body(payee_clabe=BBVA_CLABE)).json()
+
+    assert receipt["payee_bank"] == "BBVA"
+    assert receipt["payee_last_four"] == "3390"
+    assert receipt["payee_clabe"] == BBVA_CLABE
+
+
+def test_a_clabe_with_a_bad_check_digit_is_rejected(world):
+    bad = BBVA_CLABE[:17] + str((int(BBVA_CLABE[17]) + 1) % 10)
+
+    res = client.post("/transfers", json=_body(payee_clabe=bad))
+
+    assert res.status_code == 422
+    assert world.withdrawals["n_payer"] == []
+
+
+def test_a_clabe_of_ours_that_nobody_holds_is_rejected(world):
+    first17 = f"{clabe.BANK_CODE}{clabe.PLAZA_CODE}99999999999"
+
+    res = client.post("/transfers", json=_body(payee_clabe=f"{first17}{clabe.check_digit(first17)}"))
+
+    assert res.status_code == 422
+    assert "No existe" in res.json()["detail"]
+
+
+def test_another_customers_account_is_only_reachable_by_clabe(world):
+    res = client.post("/transfers", json=_body(payee_clabe=None, payee_account_id=PAYEE["id"]))
+
+    assert res.status_code == 422
+    assert "CLABE" in res.json()["detail"]
+    assert world.withdrawals["n_payer"] == []
+
+
+def test_a_payee_is_required(world):
+    assert client.post("/transfers", json=_body(payee_clabe=None)).status_code == 422
+
+
+def test_someone_elses_receipt_is_404(world, monkeypatch):
+    client.post("/transfers", json=_body())
+    monkeypatch.setattr(repository, "fetch_current_customer", lambda: {"id": "cus_nessie_beto"})
+
+    assert client.get("/transfers/trf_test_0001").status_code == 404
 
 
 def test_transfer_descriptors_normalize_as_transfers_not_rent():

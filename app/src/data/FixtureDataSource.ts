@@ -28,6 +28,7 @@ import type {
   TransferRecipient,
 } from './DataSource';
 import { sharesFor } from './shares';
+import { OWN_BANK_CODE, bankForClabe, clabeFromAccountDigits, clabeLastFour, isValidClabe } from '../clabe';
 import { formatCents } from '../format';
 
 const customers = customersJson as Customer[];
@@ -206,16 +207,22 @@ export class FixtureDataSource implements DataSource {
 
   async createSavingsAccount(nickname: string): Promise<Account> {
     const name = nickname.trim();
+    const owner = customers[0];
     if (!name) throw new Error('Ponle un nombre a tu cuenta de ahorro.');
-    if (accounts.some((account) => account.nickname.toLowerCase() === name.toLowerCase())) {
+    if (accounts.some((account) => account.customer_id === owner.id && account.nickname.toLowerCase() === name.toLowerCase())) {
       throw new Error('Ya tienes una cuenta con ese nombre.');
     }
+    let clabe = '';
+    do {
+      clabe = clabeFromAccountDigits(String(Math.floor(Math.random() * 1e11)).padStart(11, '0'));
+    } while (accounts.some((account) => account.clabe === clabe));
     const account: Account = {
       id: nextId('acc_savings'),
-      customer_id: customers[0].id,
+      customer_id: owner.id,
       nickname: name,
       type: 'savings',
-      last_four: String(Math.floor(Math.random() * 9000) + 1000),
+      last_four: clabeLastFour(clabe),
+      clabe,
       balance_cents: 0,
       currency: 'MXN',
       nessie_account_id: null,
@@ -233,19 +240,20 @@ export class FixtureDataSource implements DataSource {
         name: account.nickname,
         bank: 'Capital One',
         last_four: account.last_four,
+        clabe: account.clabe,
         account_id: account.id,
       }));
-    const seen = new Set(own.map((r) => `${r.name}|${r.last_four ?? ''}`));
+    const seen = new Set(own.map((r) => r.clabe));
     for (const transfer of sentTransfers.filter((t) => t.account_id === accountId)) {
-      const key = `${transfer.payee_name}|${transfer.payee_last_four ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (!transfer.payee_clabe || seen.has(transfer.payee_clabe)) continue;
+      seen.add(transfer.payee_clabe);
       own.push({
-        id: `payee_${key}`,
+        id: `payee_${transfer.payee_clabe}`,
         name: transfer.payee_name,
         bank: transfer.payee_bank,
         last_four: transfer.payee_last_four,
-        account_id: transfer.payee_account_id,
+        clabe: transfer.payee_clabe,
+        account_id: null,
       });
     }
     return own;
@@ -261,7 +269,15 @@ export class FixtureDataSource implements DataSource {
     if (already) return already;
     const source = accounts.find((account) => account.id === draft.accountId);
     if (!source) throw new Error('No encontramos la cuenta de origen.');
-    if (draft.recipient.account_id === source.id) {
+    // Mismas reglas que el engine: a otra persona solo por CLABE, y una CLABE nuestra tiene que existir.
+    const { clabe } = draft.recipient;
+    if (clabe !== null && !isValidClabe(clabe)) throw new Error('La CLABE no es válida: revisa los 18 dígitos.');
+    const payee = clabe
+      ? accounts.find((account) => account.clabe === clabe)
+      : accounts.find((account) => account.id === draft.recipient.account_id);
+    if (!clabe && !payee) throw new Error('Indica la CLABE de quien recibe.');
+    if (clabe?.startsWith(OWN_BANK_CODE) && !payee) throw new Error('No existe ninguna cuenta con esa CLABE.');
+    if (payee?.id === source.id) {
       throw new Error('La cuenta de origen y la de destino son la misma.');
     }
     const available = balanceOf(source);
@@ -272,10 +288,11 @@ export class FixtureDataSource implements DataSource {
     const transfer: Transfer = {
       id: draft.id,
       account_id: draft.accountId,
-      payee_account_id: draft.recipient.account_id,
+      payee_account_id: payee?.id ?? null,
+      payee_clabe: clabe,
       payee_name: draft.recipient.name,
-      payee_bank: draft.recipient.bank,
-      payee_last_four: draft.recipient.last_four,
+      payee_bank: clabe ? bankForClabe(clabe) : draft.recipient.bank,
+      payee_last_four: clabe ? clabeLastFour(clabe) : draft.recipient.last_four,
       amount_cents: draft.amountCents,
       concept: draft.concept,
       // El engine real aplica el retiro y el depósito de una vez; los fixtures
@@ -287,7 +304,6 @@ export class FixtureDataSource implements DataSource {
     };
     sentTransfers.unshift(transfer);
     recordMovement(source.id, -draft.amountCents, `Transferencia a ${draft.recipient.name}`, `SPEI ENVIADO ${draft.recipient.name.toUpperCase()}`, now);
-    const payee = accounts.find((account) => account.id === draft.recipient.account_id);
     if (payee) {
       recordMovement(payee.id, draft.amountCents, `Transferencia de ${source.nickname}`, `SPEI RECIBIDO ${source.nickname.toUpperCase()}`, now);
     }

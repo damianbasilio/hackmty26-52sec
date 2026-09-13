@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import repository
+from ..auth import current_customer, owned_account_id, owns
 from ..anomalies_engine import scan_anomalies
 from ..bills import detect_with_bills
 
@@ -12,13 +13,13 @@ VALID_RESOLUTIONS = {"dismissed", "confirmed_fraud", "confirmed_legit"}
 
 
 @router.get("")
-def list_alerts(account_id: str, include_resolved: bool = False) -> list[dict]:
+def list_alerts(account_id: str = Depends(owned_account_id), include_resolved: bool = False) -> list[dict]:
     """Alert feed, most severe first. Response shape: AnomalyAlert[] in /contracts/types.ts."""
     return repository.fetch_anomaly_alerts(account_id, include_resolved)
 
 
 @router.post("/scan")
-def scan(account_id: str) -> list[dict]:
+def scan(account_id: str = Depends(owned_account_id)) -> list[dict]:
     """Score every recent movement and persist new alerts."""
     transactions = repository.fetch_transactions(account_id)
     if not transactions:
@@ -63,10 +64,13 @@ def scan(account_id: str) -> list[dict]:
 
 
 @router.post("/{alert_id}/resolve")
-def resolve_alert(alert_id: str, resolution: str) -> dict:
+def resolve_alert(alert_id: str, resolution: str, customer: dict = Depends(current_customer)) -> dict:
     """resolution is one of dismissed | confirmed_fraud | confirmed_legit."""
     if resolution not in VALID_RESOLUTIONS:
         raise HTTPException(status_code=422, detail=f"resolution must be one of {sorted(VALID_RESOLUTIONS)}")
+    existing = repository.fetch_anomaly_alert(alert_id)
+    if existing is None or not owns(existing["account_id"], customer):
+        raise HTTPException(status_code=404, detail=f"No existe la alerta {alert_id}")
     resolved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     alert = repository.resolve_anomaly_alert(alert_id, resolution, resolved_at)
     if alert is None:

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { CHUNK_SIZE, joinChunks, splitIntoChunks } from './chunk.ts';
 import { sharesFor } from './data/shares.ts';
-import { clabeCheckDigit, demoClabe, formatClabe, isValidClabe } from './clabe.ts';
+import { bankForClabe, clabeCheckDigit, clabeFromAccountDigits, clabeLastFour, formatClabe, isValidClabe } from './clabe.ts';
 import { moneyInputToCents, moneyMaxLength, normalizeMoneyInput, withCents } from './moneyInput.ts';
 import { bytesToHex, secondsLeft, sha1, totp } from './totp.ts';
 import {
@@ -51,14 +51,16 @@ assert.equal(moneyMaxLength('150.25'), '150.25'.length);
 assert.equal(moneyMaxLength('150.2'), 6);
 assert.equal(moneyMaxLength('150'), 10);
 
-// CLABE: ejemplo publicado de Banxico/Wikipedia y las de demostración.
+// CLABE: ejemplo publicado de Banxico/Wikipedia, y la del fixture tal como la genera engine/app/clabe.py.
 assert.ok(isValidClabe('032180000118359719'));
 assert.ok(!isValidClabe('032180000118359718'));
 assert.equal(clabeCheckDigit('03218000011835971'), 9);
-const clabe = demoClabe('acc_checking_0001', '4821');
+const clabe = clabeFromAccountDigits('01000014821');
+assert.equal(clabe, '052580010000148213');
 assert.ok(isValidClabe(clabe));
-assert.ok(clabe.slice(13, 17) === '4821');
-assert.equal(demoClabe('acc_checking_0001', '4821'), clabe);
+assert.equal(clabeLastFour(clabe), '4821');
+assert.equal(bankForClabe(clabe), 'Capital One');
+assert.equal(bankForClabe('032180000118359719'), 'Otro banco');
 assert.equal(formatClabe(clabe).replace(/ /g, ''), clabe);
 
 assert.equal(moneyInputToCents(''), 0);

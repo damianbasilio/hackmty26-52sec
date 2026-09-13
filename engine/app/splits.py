@@ -179,7 +179,7 @@ def join_split(req: SplitJoin, now: datetime) -> dict:
         return {"participant": mine, "split": split_view(split, participants, now)}
 
 
-def pay_share(split_id: str, participant_id: str, req: SplitPayment, now: datetime) -> dict:
+def pay_share(split_id: str, participant_id: str, req: SplitPayment, caller: dict, now: datetime) -> dict:
     with _split_lock(split_id):
         split = repository.fetch_split(split_id)
         if split is None:
@@ -196,6 +196,8 @@ def pay_share(split_id: str, participant_id: str, req: SplitPayment, now: dateti
             raise SplitRejected(f"La división está {split['status']} y ya no recibe pagos.")
 
         payer = transfers.nessie_account(req.account_id, "origen")
+        if payer["customer_id"] != caller["id"]:
+            raise SplitRejected("La cuenta de origen no es tuya.")
         if participant["customer_id"] and payer["customer_id"] != participant["customer_id"]:
             raise SplitRejected("La cuenta de origen no es de este participante.")
         receiver = transfers.nessie_account(split["account_id"], "cobro")

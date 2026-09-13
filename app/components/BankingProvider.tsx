@@ -71,15 +71,17 @@ export function BankingProvider({ children }: PropsWithChildren) {
     setTransfers((current) =>
       current.some((item) => item.id === transfer.id) ? current : [transfer, ...current],
     );
+    const { payee_clabe: clabe } = transfer;
     setRecipients((current) =>
-      current.some((item) => item.name === transfer.payee_name && item.last_four === transfer.payee_last_four)
+      !clabe || current.some((item) => item.clabe === clabe)
         ? current
         : [...current, {
-            id: `payee_${transfer.payee_name}|${transfer.payee_last_four ?? ''}`,
+            id: `payee_${clabe}`,
             name: transfer.payee_name,
             bank: transfer.payee_bank,
             last_four: transfer.payee_last_four,
-            account_id: transfer.payee_account_id,
+            clabe,
+            account_id: null,
           }],
     );
     return transfer;
