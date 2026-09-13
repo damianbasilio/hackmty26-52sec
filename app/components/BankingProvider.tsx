@@ -9,12 +9,6 @@ type BankingContextValue = {
   accountId: string | null;
   transfers: Transfer[];
   recipients: TransferRecipient[];
-  /**
-   * Money already committed out of this account. Misma fórmula que
-   * `available_balance_cents` del engine: el saldo de Nessie no se mueve solo,
-   * así que las transferencias salientes se restan aquí.
-   */
-  outgoingCents: number;
   loading: boolean;
   error: string | null;
   reload: () => void;
@@ -95,9 +89,6 @@ export function BankingProvider({ children }: PropsWithChildren) {
     accountId,
     transfers,
     recipients,
-    outgoingCents: transfers
-      .filter((transfer) => transfer.status === 'pending' || transfer.status === 'completed')
-      .reduce((sum, transfer) => sum + transfer.amount_cents, 0),
     loading,
     error,
     reload,

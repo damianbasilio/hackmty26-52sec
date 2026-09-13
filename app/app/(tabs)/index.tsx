@@ -7,7 +7,6 @@ import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimate
 import type { AnomalyAlert, AnomalySeverity, EnrichedTransaction } from '@contracts/types';
 
 import { useAuth } from '@/components/AuthProvider';
-import { useBanking } from '@/components/BankingProvider';
 import { Card } from '@/components/Card';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
@@ -45,7 +44,6 @@ export default function InicioScreen() {
   const palette = usePalette();
   const router = useRouter();
   const { lock, firstName } = useAuth();
-  const { outgoingCents } = useBanking();
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
 
   const { data, error, loading, reload } = useAsync(async () => {
@@ -70,7 +68,8 @@ export default function InicioScreen() {
   const openAlerts = alerts.filter((alert) => !resolvedIds.includes(alert.id));
   const featuredAlert = openAlerts[0] ?? null;
   const remainingAlerts = openAlerts.slice(1);
-  const availableBalanceCents = Math.max(0, checking.balance_cents - outgoingCents);
+  // El DataSource ya descuenta las transferencias; restarlas aquí las cobraba dos veces.
+  const availableBalanceCents = checking.balance_cents;
   const savingsTotal = savings.reduce((sum, account) => sum + account.balance_cents, 0);
 
   // `at` cambia en cada toque: la pestaña sigue montada y sin él no vería los mismos filtros dos veces.
@@ -94,9 +93,19 @@ export default function InicioScreen() {
         <Reveal delay={80}>
           <HeroCard>
             <Box style={styles.heroTop}>
-              <Text numberOfLines={1} style={styles.heroLabel}>
-                {checking.nickname} ·· {checking.last_four}
-              </Text>
+              <Box style={styles.heroLabelRow}>
+                <Text numberOfLines={1} style={[styles.heroLabel, styles.heroLabelText]}>
+                  {checking.nickname} ·· {checking.last_four}
+                </Text>
+                <MotionPressable
+                  accessibilityHint="Muestra tu CLABE y datos para recibir transferencias"
+                  accessibilityRole="button"
+                  onPress={() => router.push({ pathname: '/datos-cuenta', params: { accountId: checking.id } } as never)}
+                  style={styles.dataPill}>
+                  <SymbolView name={{ ios: 'doc.on.doc', android: 'content_copy', web: 'content_copy' }} tintColor="#FFFFFF" size={13} />
+                  <Text style={styles.dataPillLabel}>Mis datos</Text>
+                </MotionPressable>
+              </Box>
               <Text adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>{formatCents(availableBalanceCents)}</Text>
             </Box>
             {savings.length > 0 ? (
@@ -411,6 +420,10 @@ const styles = StyleSheet.create({
   name: { fontSize: 36, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1 },
   heroTop: { backgroundColor: 'transparent', gap: 6 },
   heroLabel: { color: 'rgba(255,255,255,0.82)', fontSize: 15, fontWeight: '600' },
+  heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  heroLabelText: { flex: 1 },
+  dataPill: { minHeight: 32, borderRadius: 999, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.32)' },
+  dataPillLabel: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   heroAmount: { color: '#FFFFFF', fontSize: 42, lineHeight: 48, fontWeight: '700', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
   savingsStrip: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.28)' },
   savingsIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)' },

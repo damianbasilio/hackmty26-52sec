@@ -8,7 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
@@ -20,6 +20,9 @@ import { describeSupabaseError, supabase } from '@/src/supabase';
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 30_000;
 const BACKGROUND_LOCK_MS = 15_000;
+// iOS pasa por `inactive` al abrir el centro de control, una notificación o el
+// selector de apps. Cubrir al instante hacía parpadear una pantalla completa.
+const SHIELD_DELAY_MS = 350;
 const PIN_LENGTH = 6;
 const TRUSTED_DEVICE_KEY = 'capital-one.trusted-device.v1';
 const DEVICE_PIN_PREFIX = 'capital-one.device-pin.v1.';
@@ -114,7 +117,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [needsPinSetup, setNeedsPinSetup] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
-  const [appState, setAppState] = useState(AppState.currentState);
+  const [shielded, setShielded] = useState(false);
+  const shieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [biometricSignInEnabled, setBiometricSignInEnabled] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('biometría');
@@ -136,7 +140,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setBiometricsAvailable(available);
         setBiometricSignInEnabled(available && trustedDevice === 'enabled');
         if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-          setBiometricLabel('Face ID');
+          // Face ID es de Apple: en Android el mismo tipo es el desbloqueo facial.
+          setBiometricLabel(Platform.OS === 'ios' ? 'Face ID' : 'reconocimiento facial');
         } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
           setBiometricLabel('huella');
         }
@@ -211,7 +216,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      setAppState(nextState);
+      if (shieldTimer.current) {
+        clearTimeout(shieldTimer.current);
+        shieldTimer.current = null;
+      }
+      // `background` cubre al instante: iOS toma ahí la foto del selector de apps.
+      if (nextState === 'background') setShielded(true);
+      else if (nextState === 'inactive') shieldTimer.current = setTimeout(() => setShielded(true), SHIELD_DELAY_MS);
+      else setShielded(false);
       // Supabase solo debe renovar el token con la app al frente.
       if (nextState === 'active') supabase?.auth.startAutoRefresh();
       else supabase?.auth.stopAutoRefresh();
@@ -462,7 +474,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   return (
     <AuthContext.Provider value={value}>
       {children}
-      {appState !== 'active' ? (
+      {shielded ? (
         <View style={[StyleSheet.absoluteFill, styles.privacyShield, { backgroundColor: palette.accentDeep }]}>
           <View style={[styles.shieldIcon, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
             <Text style={styles.shieldGlyph}>●</Text>

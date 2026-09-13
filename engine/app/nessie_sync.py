@@ -79,7 +79,7 @@ def sync_all() -> dict:
         customer_row = _map_customer(nessie_customer)
         accounts = []
         for nessie_account in nessie.get_accounts_for_customer(nessie_id):
-            account_row = _map_account(customer_row["id"], nessie_account)
+            account_row = map_account(customer_row["id"], nessie_account)
             accounts.append((account_row, _pull_transactions(account_row["id"], nessie_account["_id"])))
 
         reasons = _suspicious_reasons(customer_row, accounts)
@@ -174,7 +174,7 @@ def _map_customer(c: dict) -> dict:
     }
 
 
-def _map_account(customer_id: str, a: dict) -> dict:
+def map_account(customer_id: str, a: dict) -> dict:
     nessie_id = a["_id"]
     digits = "".join(ch for ch in str(a.get("account_number") or "") if ch.isdigit())
     last_four = (digits[-4:] or "0000").rjust(4, "0")

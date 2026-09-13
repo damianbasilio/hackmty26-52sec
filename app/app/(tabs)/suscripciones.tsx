@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/Card';
@@ -7,6 +8,7 @@ import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
+import { markSubscription, useSubscriptionMarks } from '@/components/subscriptionMarks';
 import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { Chevron, EmptyState, SectionTitle } from '@/components/ui';
@@ -20,6 +22,15 @@ const LOAD_ERROR =
 export default function SuscripcionesScreen() {
   const palette = usePalette();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const marks = useSubscriptionMarks();
+  const params = useLocalSearchParams<{ expand?: string; at?: string }>();
+
+  // Ahorro abre esta pestaña con la suscripción que hay que cancelar ya desplegada.
+  useEffect(() => {
+    if (params.at && params.expand) setExpandedId(params.expand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.at]);
+
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
     const checking = accounts.find((account) => account.type === 'checking') ?? accounts[0];
@@ -83,7 +94,7 @@ export default function SuscripcionesScreen() {
               <MotionPressable
                 accessibilityRole="button"
                 accessibilityLabel={`Revisar aumento de ${spotlight.merchant_display_name}`}
-                onPress={() => setExpandedId(spotlight.id)}
+                onPress={() => setExpandedId((current) => (current === spotlight.id ? null : spotlight.id))}
                 style={[styles.alertOverlay, { backgroundColor: palette.surfaceBlush }]}>
                 <View style={[styles.alertIcon, { backgroundColor: palette.dangerSoft }]}>
                   <Text style={[styles.alertIconText, { color: palette.danger }]}>↗</Text>
@@ -92,7 +103,7 @@ export default function SuscripcionesScreen() {
                   {spotlight.merchant_display_name} subió{' '}
                   <Text style={{ color: palette.danger }}>{formatCents(Math.abs(increase))}</Text>
                 </Text>
-                <Text style={[styles.review, { color: palette.danger }]}>Revisar</Text>
+                <Text style={[styles.review, { color: palette.danger }]}>{expandedId === spotlight.id ? 'Ocultar' : 'Revisar'}</Text>
                 <Chevron direction={expandedId === spotlight.id ? 'down' : 'right'} />
               </MotionPressable>
             )}
@@ -107,9 +118,23 @@ export default function SuscripcionesScreen() {
                 key={subscription.id}
                 subscription={subscription}
                 expanded={expandedId === subscription.id}
+                mark={marks[subscription.id]}
                 isLast={index === displaySubscriptions.length - 1}
                 onToggle={() =>
                   setExpandedId((current) => (current === subscription.id ? null : subscription.id))
+                }
+                onMarkUsage={(usage) =>
+                  markSubscription(subscription.id, {
+                    usage,
+                    // Si dice que sí la usa, ya no tiene sentido recordarle cancelarla.
+                    ...(usage === 'using' ? { cancelPending: false } : {}),
+                  })
+                }
+                onToggleCancel={() =>
+                  markSubscription(subscription.id, {
+                    cancelPending: !marks[subscription.id]?.cancelPending,
+                    usage: 'not_using',
+                  })
                 }
               />
             ))}
@@ -120,7 +145,8 @@ export default function SuscripcionesScreen() {
           <Text style={styles.detailTitle}>Cómo las detectamos</Text>
           <Text style={[styles.detailCopy, { color: palette.muted }]}>
             Buscamos coincidencias de comercio, monto y cadencia. Si el patrón cambia o deja de aparecer,
-            te lo explicamos sin adivinar.
+            te lo explicamos sin adivinar. No podemos saber si usas un servicio: dínoslo en el detalle de
+            cada suscripción y te ayudamos a decidir si conviene cancelarla.
           </Text>
         </Card>
       </ScrollView>

@@ -198,11 +198,13 @@ export function Banner({
   tone = 'danger',
   onDismiss,
   autoHideMs = 6000,
+  style,
 }: {
   text: string;
   tone?: 'danger' | 'positive';
   onDismiss: () => void;
   autoHideMs?: number;
+  style?: StyleProp<ViewStyle>;
 }) {
   const palette = usePalette();
   const dismiss = useRef(onDismiss);
@@ -226,7 +228,7 @@ export function Banner({
       accessibilityLiveRegion="polite"
       entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)}
       exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
-      style={[styles.banner, { backgroundColor: colors.background }]}>
+      style={[styles.banner, { backgroundColor: colors.background }, style]}>
       <SymbolView
         name={tone === 'positive'
           ? { ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }
@@ -248,7 +250,29 @@ export function Banner({
   );
 }
 
+/**
+ * El mismo aviso, flotando sobre la barra de pestañas. Un Banner arriba del
+ * scroll no se veía cuando el botón que lo disparó estaba más abajo.
+ */
+export function Toast(props: React.ComponentProps<typeof Banner>) {
+  const palette = usePalette();
+  return (
+    <PlainView pointerEvents="box-none" style={styles.toastWrap}>
+      <Banner {...props} style={[styles.toast, { borderColor: palette.border }]} />
+    </PlainView>
+  );
+}
+
 const styles = StyleSheet.create({
+  toastWrap: { position: 'absolute', left: 16, right: 16, bottom: 104 },
+  toast: {
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#001A3D',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
   sectionRow: {
     backgroundColor: 'transparent',
     flexDirection: 'row',

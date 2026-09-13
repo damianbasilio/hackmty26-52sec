@@ -21,7 +21,7 @@ import { Text } from '@/components/Themed';
 import { usePalette } from '@/components/palette';
 import { bytesToHex, hexToBytes, secondsLeft, totp } from '@/src/totp';
 
-const STEP_SECONDS = 30;
+const STEP_SECONDS = 60;
 const SECRET_PREFIX = 'capital-one.dynamic-key.v1.';
 
 function randomSecret(): Uint8Array {
@@ -80,7 +80,7 @@ export default function ClaveDinamicaScreen() {
   const code = secret ? totp(secret, now, STEP_SECONDS) : null;
   const left = secondsLeft(now, STEP_SECONDS);
 
-  // Una sola animación por ventana de 30 s: la barra baja continua, no a saltos.
+  // Una sola animación por ventana: la barra baja continua, no a saltos.
   useEffect(() => {
     if (!code) return;
     const seconds = secondsLeft(Date.now(), STEP_SECONDS);
@@ -153,7 +153,7 @@ export default function ClaveDinamicaScreen() {
           <Card tone="sage" style={styles.infoCard}>
             <InfoRow
               icon={{ ios: 'arrow.triangle.2.circlepath', android: 'autorenew', web: 'autorenew' }}
-              text="Cambia cada 30 segundos y solo se genera en este teléfono, aunque no tengas internet."
+              text="Cambia cada minuto y solo se genera en este teléfono, aunque no tengas internet."
             />
             <InfoRow
               icon={{ ios: 'hand.raised.fill', android: 'back_hand', web: 'back_hand' }}

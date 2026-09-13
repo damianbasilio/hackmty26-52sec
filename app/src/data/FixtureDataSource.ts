@@ -27,8 +27,8 @@ import type {
   TransferDraft,
   TransferRecipient,
 } from './DataSource';
-import { splitShareTransferId } from './DataSource';
 import { sharesFor } from './shares';
+import { formatCents } from '../format';
 
 const customers = customersJson as Customer[];
 const accounts = accountsJson as Account[];
@@ -42,6 +42,8 @@ const rules = rulesJson as SavingsRule[];
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
 const activated = new Map<string, { accountId: string; at: string }>();
 const sentTransfers: Transfer[] = [];
+/** Movimientos que nacen en la demo. Cada cuenta suma los suyos a su saldo. */
+const ledger: EnrichedTransaction[] = [];
 
 const CODE_TTL_MS = 15 * 60 * 1000;
 
@@ -54,6 +56,39 @@ let sequence = 0;
 function nextId(prefix: string): string {
   sequence += 1;
   return `${prefix}_demo_${String(sequence).padStart(4, '0')}`;
+}
+
+function balanceOf(account: Account): number {
+  return ledger
+    .filter((movement) => movement.account_id === account.id)
+    .reduce((sum, movement) => sum + movement.amount_cents, account.balance_cents);
+}
+
+function recordMovement(accountId: string, amountCents: number, displayName: string, rawDescription: string, at: string) {
+  const local = new Date(new Date(at).getTime() - 6 * 3600 * 1000);
+  ledger.push({
+    id: nextId('txn'),
+    account_id: accountId,
+    amount_cents: amountCents,
+    currency: 'MXN',
+    type: 'transfer',
+    status: 'completed',
+    raw_description: rawDescription,
+    occurred_at: at,
+    nessie_transaction_id: null,
+    created_at: at,
+    merchant_id: null,
+    merchant_normalized_name: null,
+    merchant_display_name: displayName,
+    category: 'transfer',
+    category_confidence: 1,
+    is_recurring: false,
+    subscription_id: null,
+    amount_zscore: null,
+    hour_of_day: local.getUTCHours(),
+    day_of_week: local.getUTCDay(),
+    anomaly_alert_id: null,
+  });
 }
 
 /** Cuatro dígitos sin chocar con otra división abierta: igual que el índice parcial. */
@@ -116,19 +151,13 @@ export class FixtureDataSource implements DataSource {
   }
 
   async getAccounts(): Promise<Account[]> {
-    // Copia: con la misma referencia los useMemo no ven la cuenta nueva.
-    // El abono de una transferencia a cuenta propia se suma aquí; el cargo lo
-    // aplica la pantalla con outgoingCents. Sin esto el dinero desaparecía.
-    return accounts.map((account) => {
-      const incoming = sentTransfers
-        .filter((transfer) => transfer.payee_account_id === account.id)
-        .reduce((sum, transfer) => sum + transfer.amount_cents, 0);
-      return incoming === 0 ? { ...account } : { ...account, balance_cents: account.balance_cents + incoming };
-    });
+    // Copias con el saldo que dejan los movimientos de la demo; la misma
+    // referencia tampoco dejaría a los useMemo ver una cuenta nueva.
+    return accounts.map((account) => ({ ...account, balance_cents: balanceOf(account) }));
   }
 
   async getTransactions({ accountId, from, to, limit }: TransactionQuery): Promise<EnrichedTransaction[]> {
-    const out = transactions
+    const out = [...transactions, ...ledger]
       .filter((t) => t.account_id === accountId)
       .filter((t) => (from ? t.occurred_at.slice(0, 10) >= from : true))
       .filter((t) => (to ? t.occurred_at.slice(0, 10) <= to : true))
@@ -230,6 +259,15 @@ export class FixtureDataSource implements DataSource {
     // Misma llave, misma transferencia: un reintento no cobra de nuevo.
     const already = sentTransfers.find((transfer) => transfer.id === draft.id);
     if (already) return already;
+    const source = accounts.find((account) => account.id === draft.accountId);
+    if (!source) throw new Error('No encontramos la cuenta de origen.');
+    if (draft.recipient.account_id === source.id) {
+      throw new Error('La cuenta de origen y la de destino son la misma.');
+    }
+    const available = balanceOf(source);
+    if (draft.amountCents > available) {
+      throw new Error(`Fondos insuficientes: tienes ${formatCents(available)} disponibles en ${source.nickname}.`);
+    }
     const now = new Date().toISOString();
     const transfer: Transfer = {
       id: draft.id,
@@ -248,6 +286,11 @@ export class FixtureDataSource implements DataSource {
       completed_at: now,
     };
     sentTransfers.unshift(transfer);
+    recordMovement(source.id, -draft.amountCents, `Transferencia a ${draft.recipient.name}`, `SPEI ENVIADO ${draft.recipient.name.toUpperCase()}`, now);
+    const payee = accounts.find((account) => account.id === draft.recipient.account_id);
+    if (payee) {
+      recordMovement(payee.id, draft.amountCents, `Transferencia de ${source.nickname}`, `SPEI RECIBIDO ${source.nickname.toUpperCase()}`, now);
+    }
     return transfer;
   }
 
@@ -273,6 +316,9 @@ export class FixtureDataSource implements DataSource {
       customer_id: owner.id,
       share_cents: totalCents,
       is_creator: true,
+      // El anfitrión ya pagó la cuenta completa: recibe las partes, no paga la suya.
+      paid: true,
+      paid_at: now.toISOString(),
     }]);
     return snapshot(request.id);
   }
@@ -315,25 +361,21 @@ export class FixtureDataSource implements DataSource {
     const person = people.find((candidate) => candidate.id === participantId);
     if (!person) throw new Error('No encontramos tu parte en esta división.');
     if (!person.paid) {
-      const transfer = await this.createTransfer({
-        id: splitShareTransferId(participantId),
-        accountId: request.account_id,
-        recipient: {
-          id: `split_${request.id}`,
-          name: request.title || 'División de gasto',
-          bank: null,
-          last_four: null,
-          account_id: null,
-        },
-        amountCents: person.share_cents,
-        concept: `Mi parte de la división ${request.code}`,
-      });
-      person.paid_at = transfer.created_at;
+      // En la demo todos comparten este teléfono y quien se une es otra persona:
+      // su parte no sale de tus cuentas, entra a la del anfitrión.
+      const at = new Date().toISOString();
+      recordMovement(
+        request.account_id,
+        person.share_cents,
+        `Pago de ${person.display_name}`,
+        `DIVISION ${request.code} ${person.display_name.toUpperCase()}`,
+        at,
+      );
+      person.paid_at = at;
       person.paid = true;
-      person.transfer_id = transfer.id;
       if (people.every((candidate) => candidate.paid)) {
         request.status = 'settled';
-        request.settled_at = transfer.created_at;
+        request.settled_at = at;
       }
     }
     emit(splitId);

@@ -53,6 +53,7 @@ function RootLayoutNav() {
             <Stack.Screen name="transferencias" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="dividir-gasto" options={{ animation: 'slide_from_bottom' }} />
             <Stack.Screen name="clave-dinamica" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="datos-cuenta" options={{ animation: 'slide_from_right' }} />
           </Stack>
         </ThemeProvider>
       </BankingProvider>
