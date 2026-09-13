@@ -33,8 +33,9 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
   // Saldos, comprobantes y la clave dinámica no deben terminar en una captura.
   // Solo nativo: en web el módulo no existe y el hook deja una promesa rechazada.
+  // EXPO_PUBLIC_ALLOW_SCREEN_CAPTURE=1 lo apaga para poder grabar la demo.
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || process.env.EXPO_PUBLIC_ALLOW_SCREEN_CAPTURE === '1') return;
     preventScreenCaptureAsync().catch(() => undefined);
     return () => {
       allowScreenCaptureAsync().catch(() => undefined);
