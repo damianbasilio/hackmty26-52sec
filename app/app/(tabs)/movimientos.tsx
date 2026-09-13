@@ -14,6 +14,7 @@ import type {
 } from '@contracts/types';
 
 import { CalendarPicker } from '@/components/CalendarPicker';
+import { BrandHeader } from '@/components/BrandLogo';
 import { Card } from '@/components/Card';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { OptionSheet } from '@/components/OptionSheet';
@@ -210,7 +211,12 @@ export default function MovimientosScreen() {
         ListHeaderComponent={
           <Box style={styles.header}>
             <Reveal delay={20}>
+              <BrandHeader />
+            </Reveal>
+
+            <Reveal delay={35}>
               <Text style={styles.title}>Movimientos</Text>
+              <Text style={[styles.subtitle, { color: palette.muted }]}>Todo tu dinero, con claridad.</Text>
             </Reveal>
 
             {data.accounts.length > 1 ? (
@@ -303,7 +309,7 @@ export default function MovimientosScreen() {
         }
         renderItem={({ item, index }) => (
           <Reveal delay={Math.min(60 + index * 35, 220)} style={styles.groupWrap}>
-            <Card tone="sage" style={styles.dayCard}>
+            <Card style={styles.dayCard}>
               <Box style={[styles.dayHead, { borderBottomColor: palette.border }]}>
                 <Text style={[styles.dayHeading, { color: palette.muted }]}>{item.heading}</Text>
                 <Text style={[styles.dayTotal, { color: palette.muted }]}>{formatSignedCents(item.total)}</Text>
@@ -554,7 +560,7 @@ function TransactionDetail({
         </Reveal>
 
         <Reveal delay={80}>
-          <Card tone="sage" style={styles.detailCard}>
+          <Card style={styles.detailCard}>
             <DetailRow
               icon={{ ios: 'tag.fill', android: 'sell', web: 'sell' }}
               label="Categoría"
@@ -688,7 +694,7 @@ function TransactionDetail({
 
         {subscription ? (
           <Reveal delay={170}>
-            <Card tone="sage">
+            <Card>
               <Text style={styles.signalTitle}>Es parte de una suscripción</Text>
               <Text style={[styles.detailBody, { color: palette.muted }]}>{subscription.explanation}</Text>
               <Text style={[styles.detailBody, { color: palette.muted }]}>Siguiente cargo el {formatLongDay(subscription.next_charge_on)} por {formatCents(subscription.amount_cents)}.</Text>
@@ -696,7 +702,7 @@ function TransactionDetail({
           </Reveal>
         ) : txn.is_recurring ? (
           <Reveal delay={170}>
-            <Card tone="sage">
+            <Card>
               <Text style={[styles.detailBody, { color: palette.muted }]}>Este cargo se repite, pero todavía no lo agrupamos como suscripción.</Text>
             </Card>
           </Reveal>
@@ -739,18 +745,19 @@ function compactAlertCopy(alert: AnomalyAlert): string {
 }
 
 const styles = StyleSheet.create({
-  list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 138 },
-  listEmpty: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120 },
+  list: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 146 },
+  listEmpty: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 132 },
   header: { gap: 14, marginBottom: 22, backgroundColor: 'transparent' },
-  title: { fontSize: 34, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1, textAlign: 'center' },
+  title: { marginTop: 8, fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -1.25 },
+  subtitle: { marginTop: 4, fontSize: 17, lineHeight: 23 },
   centered: { alignItems: 'center' },
   accountPill: { maxWidth: '100%', minHeight: 40, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8 },
   accountPillLabel: { flexShrink: 1, fontSize: 14, fontWeight: '600' },
-  search: { minHeight: 50, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, paddingLeft: 14, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  search: { minHeight: 54, borderRadius: 21, borderWidth: StyleSheet.hairlineWidth, paddingLeft: 15, flexDirection: 'row', alignItems: 'center', gap: 9 },
   searchInput: { flex: 1, minHeight: 48, fontSize: 15 },
   searchClear: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  segmented: { height: 52, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, padding: 5, flexDirection: 'row', gap: 3 },
-  segment: { flex: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  segmented: { height: 54, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 5, flexDirection: 'row', gap: 3 },
+  segment: { flex: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   segmentLabel: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
   filterRow: { flexDirection: 'row', gap: 10 },
   filterButton: { flex: 1, minHeight: 46, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },

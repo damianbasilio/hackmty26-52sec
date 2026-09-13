@@ -6,6 +6,7 @@ import { Platform, RefreshControl, ScrollView, StyleSheet, TextInput, View } fro
 import type { Account, SavingsRule, SavingsRuleKind } from '@contracts/types';
 
 import { useBanking } from '@/components/BankingProvider';
+import { BrandHeader } from '@/components/BrandLogo';
 import { Card } from '@/components/Card';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
@@ -86,7 +87,6 @@ export default function AhorroScreen() {
   const additionalActive = active.slice(1);
   const savedToDate = active.reduce((sum, rule) => sum + rule.saved_to_date_cents, 0);
   const projected = suggested.reduce((sum, rule) => sum + rule.projected_annual_savings_cents, 0);
-  const savingsTotal = savings.reduce((sum, account) => sum + account.balance_cents, 0);
   const chosenDestination = savings.find((account) => account.id === destinationId) ?? null;
 
   function accountName(accountId: string | null): string | null {
@@ -187,17 +187,25 @@ export default function AhorroScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
         <Reveal>
+          <BrandHeader />
+        </Reveal>
+
+        <Reveal delay={35}>
           <Text style={styles.title}>Ahorro</Text>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>Pequeñas reglas, grandes resultados.</Text>
         </Reveal>
 
         <Reveal delay={55}>
           <View style={styles.heroGroup}>
             <HeroCard style={[styles.hero, primaryActive ? styles.heroWithRule : null]}>
               <View>
+                <View style={[styles.savingsHeroIcon, { backgroundColor: palette.positiveSoft }]}>
+                  <SymbolView name={{ ios: 'banknote.fill', android: 'savings', web: 'savings' }} tintColor={palette.positive} size={21} />
+                </View>
+                <Text style={[styles.heroUnit, { color: palette.muted }]}>Ahorrados con tus reglas</Text>
                 <Text adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>{formatCents(savedToDate)}</Text>
-                <Text style={styles.heroUnit}>ahorrados con tus reglas</Text>
+                <Text style={[styles.heroCaption, { color: palette.muted }]}>Hasta {formatCents(projected)} más al año</Text>
               </View>
-              <Text style={styles.heroCaption}>Hasta {formatCents(projected)} más al año</Text>
             </HeroCard>
 
             {primaryActive ? (
@@ -235,15 +243,27 @@ export default function AhorroScreen() {
         ) : null}
 
         <Reveal delay={90} style={styles.section}>
-          <SectionTitle
-            action={<Text style={[styles.sectionMeta, { color: palette.muted }]}>{formatCents(savingsTotal)}</Text>}>
-            Tus cuentas de ahorro
-          </SectionTitle>
-          <Card tone="sage" style={styles.accountList}>
+          <SectionTitle>Tus cuentas de ahorro</SectionTitle>
+          <Card style={styles.accountList}>
             {savings.length === 0 ? (
-              <Text style={[styles.detailCopy, { color: palette.muted }]}>
-                Todavía no tienes cuentas de ahorro. Abre una para cada meta.
-              </Text>
+              <View style={styles.emptyAccount}>
+                <View style={[styles.emptyAccountIcon, { backgroundColor: palette.surfaceAlt }]}>
+                  <SymbolView name={{ ios: 'wallet.bifold', android: 'account_balance_wallet', web: 'account_balance_wallet' }} tintColor={palette.muted} size={24} />
+                </View>
+                <Text style={styles.emptyAccountTitle}>Todavía no tienes cuentas de ahorro.</Text>
+                <Text style={[styles.emptyAccountHint, { color: palette.muted }]}>Abre una para cada meta.</Text>
+                <MotionPressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: newAccountOpen }}
+                  onPress={() => setNewAccountOpen((current) => !current)}
+                  style={[styles.emptyAccountAction, { borderTopColor: palette.border }]}>
+                  <View style={[styles.plusIcon, { backgroundColor: palette.accentSoft }]}>
+                    <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={palette.accent} size={19} />
+                  </View>
+                  <Text style={styles.emptyAccountActionLabel}>Abrir otra cuenta de ahorro</Text>
+                  <Chevron direction={newAccountOpen ? 'up' : 'right'} />
+                </MotionPressable>
+              </View>
             ) : (
               savings.map((account, index) => (
                 <SavingsAccountRow
@@ -266,17 +286,19 @@ export default function AhorroScreen() {
             </Text>
           ) : null}
 
-          <MotionPressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: newAccountOpen }}
-            onPress={() => setNewAccountOpen((current) => !current)}
-            style={[styles.moreButton, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-            <View style={[styles.plusIcon, { backgroundColor: palette.accentSoft }]}>
-              <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={palette.accent} size={16} />
-            </View>
-            <Text style={styles.moreLabel}>Abrir otra cuenta de ahorro</Text>
-            <Chevron direction={newAccountOpen ? 'up' : 'down'} />
-          </MotionPressable>
+          {savings.length > 0 ? (
+            <MotionPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: newAccountOpen }}
+              onPress={() => setNewAccountOpen((current) => !current)}
+              style={[styles.moreButton, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+              <View style={[styles.plusIcon, { backgroundColor: palette.accentSoft }]}>
+                <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={palette.accent} size={16} />
+              </View>
+              <Text style={styles.moreLabel}>Abrir otra cuenta de ahorro</Text>
+              <Chevron direction={newAccountOpen ? 'up' : 'down'} />
+            </MotionPressable>
+          ) : null}
 
           <Collapsible open={newAccountOpen}>
             <Card style={styles.newAccountCard}>
@@ -479,7 +501,7 @@ function FeaturedRule({
 }) {
   const palette = usePalette();
   return (
-    <Card tone="sage" style={styles.featuredShell}>
+    <Card style={styles.featuredShell}>
       <View style={[styles.featuredInner, { backgroundColor: palette.surface }]}>
         <View style={styles.featuredHead}>
           <View style={[styles.featuredIcon, { backgroundColor: palette.accentSoft }]}>
@@ -548,14 +570,16 @@ function CompactRule({
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 16, gap: 20, paddingBottom: 132 },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: '700', letterSpacing: -1.3 },
-  heroGroup: { paddingBottom: 34 },
+  content: { paddingHorizontal: 20, paddingTop: 18, gap: 16, paddingBottom: 146 },
+  title: { fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -1.3 },
+  subtitle: { marginTop: 4, fontSize: 17, lineHeight: 23 },
+  heroGroup: { paddingBottom: 8 },
   hero: { minHeight: 218, justifyContent: 'space-between' },
   heroWithRule: { paddingBottom: 68 },
+  savingsHeroIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   heroAmount: { color: '#FFFFFF', fontSize: 44, lineHeight: 50, fontWeight: '700', letterSpacing: -1.75, fontVariant: ['tabular-nums'] },
-  heroUnit: { color: '#FFFFFF', fontSize: 18, lineHeight: 24 },
-  heroCaption: { color: 'rgba(255,255,255,0.78)', fontSize: 16 },
+  heroUnit: { fontSize: 16, lineHeight: 22, marginBottom: 4 },
+  heroCaption: { marginTop: 5, fontSize: 16 },
   activeOverlay: {
     position: 'absolute',
     left: 0,
@@ -578,8 +602,13 @@ const styles = StyleSheet.create({
   activeIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   activeTitle: { flex: 1, fontSize: 13, fontWeight: '600' },
   section: { gap: 12 },
-  sectionMeta: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
   accountList: { paddingVertical: 4, paddingHorizontal: 14, gap: 0 },
+  emptyAccount: { alignItems: 'center', paddingTop: 18 },
+  emptyAccountIcon: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  emptyAccountTitle: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  emptyAccountHint: { marginTop: 5, fontSize: 13, textAlign: 'center' },
+  emptyAccountAction: { alignSelf: 'stretch', minHeight: 70, borderTopWidth: StyleSheet.hairlineWidth, marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  emptyAccountActionLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
   accountRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 11 },
   accountIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   accountCopy: { flex: 1, gap: 2 },
@@ -600,7 +629,7 @@ const styles = StyleSheet.create({
   featuredImpact: { fontSize: 13, lineHeight: 18 },
   howBox: { borderRadius: 13, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   howText: { flex: 1, fontSize: 12, lineHeight: 17 },
-  activateButton: { minHeight: 52, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  activateButton: { minHeight: 56, borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   activateLabel: { fontSize: 16, fontWeight: '700' },
   moreButton: { minHeight: 58, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
   moreLabel: { flex: 1, fontSize: 14, fontWeight: '600' },

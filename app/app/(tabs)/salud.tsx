@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/Card';
+import { BrandHeader } from '@/components/BrandLogo';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { ScoreBreakdown } from '@/components/ScoreBreakdown';
@@ -86,7 +87,12 @@ export default function SaludScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />}>
         <Reveal>
+          <BrandHeader />
+        </Reveal>
+
+        <Reveal delay={35}>
           <Text style={styles.title}>Salud financiera</Text>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>Una mejor versión de tu futuro, hoy.</Text>
         </Reveal>
 
         <Reveal delay={60}>
@@ -162,7 +168,7 @@ function ActionCard({ action, featured = false, onPress }: { action: string; fea
   const target = actionTarget(action);
   return (
     <MotionPressable accessibilityHint={target.label} accessibilityRole="button" onPress={onPress} pressedScale={0.985}>
-      <Card tone="sage" style={styles.actionCard}>
+      <Card style={styles.actionCard}>
         <View style={styles.actionHead}>
           <View
             style={[
@@ -189,9 +195,10 @@ function ActionCard({ action, featured = false, onPress }: { action: string; fea
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 16, gap: 20, paddingBottom: 132 },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: '700', letterSpacing: -1.35 },
-  scoreCard: { alignItems: 'center', paddingTop: 24, paddingBottom: 22 },
+  content: { paddingHorizontal: 20, paddingTop: 18, gap: 20, paddingBottom: 146 },
+  title: { marginTop: 8, fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -1.35 },
+  subtitle: { marginTop: 4, fontSize: 17, lineHeight: 23 },
+  scoreCard: { alignItems: 'center', paddingTop: 26, paddingBottom: 24 },
   scoreSummary: { maxWidth: 278, marginTop: 12, fontSize: 16, lineHeight: 22, textAlign: 'center' },
   disclosureCard: { padding: 10, gap: 0 },
   disclosure: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
@@ -209,8 +216,8 @@ const styles = StyleSheet.create({
   actionTitle: { fontSize: 17, lineHeight: 22, fontWeight: '700', letterSpacing: -0.25 },
   actionTitleSmall: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
   actionDetail: { fontSize: 13, lineHeight: 18 },
-  resolvePill: { minHeight: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
-  resolveLabel: { fontSize: 14, fontWeight: '700' },
+  resolvePill: { minHeight: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  resolveLabel: { fontSize: 16, fontWeight: '700' },
   moreButton: { minHeight: 58, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 },
   moreLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
   moreActions: { gap: 10, paddingBottom: 2 },

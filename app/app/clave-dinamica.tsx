@@ -150,14 +150,14 @@ export default function ClaveDinamicaScreen() {
         </Reveal>
 
         <Reveal delay={110}>
-          <Card tone="sage" style={styles.infoCard}>
+          <Card style={styles.infoCard}>
             <InfoRow
               icon={{ ios: 'arrow.triangle.2.circlepath', android: 'autorenew', web: 'autorenew' }}
               text="Cambia cada minuto y solo se genera en este teléfono, aunque no tengas internet."
             />
             <InfoRow
               icon={{ ios: 'hand.raised.fill', android: 'back_hand', web: 'back_hand' }}
-              text="Nunca la compartas por mensaje ni se la dictes a alguien que te llamó. Capital One no te la va a pedir."
+              text="Nunca la compartas por mensaje ni se la dictes a alguien que te llamó. 52Pay nunca te la va a pedir."
             />
           </Card>
         </Reveal>
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   track: { height: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.22)', overflow: 'hidden' },
   bar: { height: 6, borderRadius: 999 },
   timerText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, textAlign: 'center', fontVariant: ['tabular-nums'] },
-  primaryButton: { minHeight: 56, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  primaryButton: { minHeight: 58, borderRadius: 29, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   primaryLabel: { fontSize: 16, fontWeight: '700' },
   infoCard: { gap: 14 },
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },

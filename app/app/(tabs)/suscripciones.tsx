@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/Card';
+import { BrandHeader } from '@/components/BrandLogo';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
 import { PremiumSurface } from '@/components/PremiumSurface';
@@ -48,7 +49,9 @@ export default function SuscripcionesScreen() {
     return (
       <PremiumSurface>
         <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refresh}>
+          <BrandHeader />
           <Text style={styles.title}>Suscripciones</Text>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>Tus servicios, en control.</Text>
           <EmptyState
             title="Aún no vemos suscripciones"
             hint="Cuando un comercio repita un cobro con la misma cadencia, aparecerá aquí con una explicación clara."
@@ -75,19 +78,24 @@ export default function SuscripcionesScreen() {
         contentContainerStyle={styles.content}
         refreshControl={refresh}>
         <Reveal>
+          <BrandHeader />
+        </Reveal>
+
+        <Reveal delay={35}>
           <Text style={styles.title}>Suscripciones</Text>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>Tus servicios, en control.</Text>
         </Reveal>
 
         <Reveal delay={55}>
           <View style={styles.heroGroup}>
             <HeroCard style={[styles.hero, spotlight ? styles.heroWithAlert : null]}>
               <View>
+                <Text style={[styles.heroLabel, { color: palette.muted }]}>Total al año</Text>
                 <Text style={styles.heroAmount}>{formatCents(annualTotal)}</Text>
-                <Text style={styles.heroUnit}>al año</Text>
+                <Text style={[styles.heroCaption, { color: palette.muted }]}>
+                  {subscriptions.length} {subscriptions.length === 1 ? 'cargo recurrente' : 'cargos recurrentes'}
+                </Text>
               </View>
-              <Text style={styles.heroCaption}>
-                {subscriptions.length} {subscriptions.length === 1 ? 'cargo recurrente' : 'cargos recurrentes'}
-              </Text>
             </HeroCard>
 
             {spotlight && (
@@ -112,7 +120,7 @@ export default function SuscripcionesScreen() {
 
         <View style={styles.section}>
           <SectionTitle>Tus suscripciones</SectionTitle>
-          <Card tone="sage" style={styles.subscriptionList}>
+          <Card style={styles.subscriptionList}>
             {displaySubscriptions.map((subscription, index) => (
               <SubscriptionCard
                 key={subscription.id}
@@ -155,15 +163,16 @@ export default function SuscripcionesScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 16, gap: 22, paddingBottom: 132 },
-  emptyContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 16, gap: 24, justifyContent: 'center' },
-  title: { fontSize: 36, lineHeight: 42, fontWeight: '700', letterSpacing: -1.25 },
+  content: { paddingHorizontal: 20, paddingTop: 18, gap: 22, paddingBottom: 146 },
+  emptyContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, gap: 18 },
+  title: { marginTop: 8, fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -1.35 },
+  subtitle: { marginTop: 4, fontSize: 17, lineHeight: 23 },
   heroGroup: { paddingBottom: 34 },
   hero: { minHeight: 218, justifyContent: 'space-between' },
   heroWithAlert: { paddingBottom: 68 },
-  heroAmount: { color: '#FFFFFF', fontSize: 43, lineHeight: 49, fontWeight: '700', letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
-  heroUnit: { color: '#FFFFFF', fontSize: 20, lineHeight: 25, marginTop: 1 },
-  heroCaption: { color: 'rgba(255,255,255,0.76)', fontSize: 16 },
+  heroLabel: { fontSize: 16, lineHeight: 22, marginBottom: 12 },
+  heroAmount: { color: '#FFFFFF', fontSize: 43, lineHeight: 50, fontWeight: '700', letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
+  heroCaption: { marginTop: 5, fontSize: 16 },
   alertOverlay: {
     position: 'absolute',
     left: 0,
@@ -176,7 +185,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 11,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(196, 44, 44, 0.08)',
+    borderColor: 'rgba(255, 83, 107, 0.22)',
     ...Platform.select({
       ios: { shadowColor: '#5B2020', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.13, shadowRadius: 20 },
       android: { elevation: 7 },

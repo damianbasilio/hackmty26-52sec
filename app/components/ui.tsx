@@ -17,7 +17,7 @@ import { Text, View } from '@/components/Themed';
 import { MotionPressable } from '@/components/Motion';
 import { usePalette } from '@/components/palette';
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 40 };
 
 export function SectionTitle({
   children,
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
   toastWrap: { position: 'absolute', left: 16, right: 16, bottom: 104 },
   toast: {
     borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#001A3D',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.16,
     shadowRadius: 20,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     marginTop: spacing.md,
   },
-  sectionTitle: { fontSize: 21, fontWeight: '700', letterSpacing: -0.4 },
+  sectionTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.55 },
   empty: {
     backgroundColor: 'transparent',
     flex: 1,
@@ -293,13 +293,13 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: '700', textAlign: 'center' },
   emptyHint: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
   button: {
-    minHeight: 48,
+    minHeight: 58,
     paddingHorizontal: 28,
-    borderRadius: 16,
+    borderRadius: 29,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonLabel: { fontSize: 16, fontWeight: '700' },
+  buttonLabel: { fontSize: 17, fontWeight: '700' },
   chip: {
     minHeight: 32,
     paddingHorizontal: spacing.md,

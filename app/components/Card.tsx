@@ -36,19 +36,19 @@ export function Card({ children, accent, tone = 'default', style }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
-    gap: 12,
+    padding: 22,
+    gap: 14,
     ...Platform.select({
       ios: {
-        shadowColor: '#001A3D',
+        shadowColor: '#000000',
         shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.07,
-        shadowRadius: 22,
+        shadowOpacity: 0.22,
+        shadowRadius: 28,
       },
-      android: { elevation: 3 },
-      default: { boxShadow: '0 10px 28px rgba(0, 26, 61, 0.08)' },
+      android: { elevation: 2 },
+      default: { boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22)' },
     }),
   },
 });

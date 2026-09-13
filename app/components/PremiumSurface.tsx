@@ -20,6 +20,8 @@ export function PremiumSurface({
         pointerEvents="none"
         style={[styles.warmLight, { backgroundColor: palette.ambientWarm }]}
       />
+      <View pointerEvents="none" style={styles.arcOuter} />
+      <View pointerEvents="none" style={styles.arcInner} />
       {children}
     </SafeAreaView>
   );
@@ -34,7 +36,7 @@ const styles = StyleSheet.create({
     borderRadius: 180,
     top: -210,
     right: -170,
-    opacity: 0.62,
+    opacity: 0.36,
   },
   warmLight: {
     position: 'absolute',
@@ -43,6 +45,26 @@ const styles = StyleSheet.create({
     borderRadius: 150,
     bottom: -190,
     left: -170,
-    opacity: 0.42,
+    opacity: 0.2,
+  },
+  arcOuter: {
+    position: 'absolute',
+    width: 440,
+    height: 440,
+    borderRadius: 220,
+    borderWidth: 48,
+    borderColor: 'rgba(255,255,255,0.018)',
+    top: -290,
+    right: -180,
+  },
+  arcInner: {
+    position: 'absolute',
+    width: 330,
+    height: 330,
+    borderRadius: 165,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.045)',
+    top: -218,
+    right: -118,
   },
 });

@@ -21,7 +21,7 @@ const BAND_ES: Record<CashflowScore['band'], string> = {
 
 function bandColor(band: CashflowScore['band'], palette: Palette): string {
   if (band === 'poor') return palette.danger;
-  if (band === 'fair') return palette.warning;
+  if (band === 'fair') return '#B7C763';
   if (band === 'good') return palette.positive;
   return palette.positive;
 }
@@ -121,7 +121,7 @@ export function ScoreGauge({ score }: { score: CashflowScore }) {
         </Animated.View>
         <Animated.View
           entering={FadeIn.delay(300).duration(220).reduceMotion(ReduceMotion.System)}
-          style={[styles.currentMarker, arcStyle(shownProgress)]}>
+          style={[styles.currentMarker, arcStyle(shownProgress), { borderColor: palette.ink }]}>
           <View style={[styles.markerCore, { backgroundColor: palette.surface }]} />
         </Animated.View>
 
@@ -164,11 +164,10 @@ const styles = StyleSheet.create({
     marginLeft: -11,
     marginTop: -4,
     borderWidth: 4,
-    borderColor: '#2E86C9',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#11161C',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#1A5D91',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.18,
     shadowRadius: 5,

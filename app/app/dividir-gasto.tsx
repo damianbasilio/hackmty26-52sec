@@ -62,6 +62,7 @@ export default function DividirGastoScreen() {
 
   const [step, setStep] = useState<Step>('amount');
   const [amount, setAmount] = useState('');
+  const [concept, setConcept] = useState('');
   const [split, setSplit] = useState<Split | null>(null);
   const [myParticipantId, setMyParticipantId] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
@@ -230,15 +231,15 @@ export default function DividirGastoScreen() {
             <View style={styles.headerSpacer} />
           </View>
 
-          {IS_DEMO ? <DemoBanner /> : null}
-
           {step === 'amount' ? (
             <AmountStep
               amount={amount}
               busy={busy}
+              concept={concept}
               preview={preview}
               onAmountBlur={() => setAmount((current) => withCents(current))}
               onAmountChange={(value) => setAmount(normalizeMoneyInput(value))}
+              onConceptChange={setConcept}
               onContinue={createSplit}
               onJoin={() => {
                 setMessage(null);
@@ -311,17 +312,21 @@ function DemoBanner() {
 function AmountStep({
   amount,
   busy,
+  concept,
   preview,
   onAmountBlur,
   onAmountChange,
+  onConceptChange,
   onContinue,
   onJoin,
 }: {
   amount: string;
   busy: boolean;
+  concept: string;
   preview: number[];
   onAmountBlur: () => void;
   onAmountChange: (value: string) => void;
+  onConceptChange: (value: string) => void;
   onContinue: () => void;
   onJoin: () => void;
 }) {
@@ -330,17 +335,17 @@ function AmountStep({
   return (
     <>
       <Reveal>
-        <HeroCard style={styles.amountHero}>
+        <View style={styles.amountHero}>
           <View style={styles.groupIcon}>
-            <SymbolView name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }} tintColor="#FFFFFF" size={27} />
+            <SymbolView name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }} tintColor={palette.accent} size={27} />
           </View>
           <View style={styles.amountHeroCopy}>
             <Text style={styles.amountHeroTitle}>Juntos, sin hacer cuentas.</Text>
             <Text style={styles.amountHeroBody}>
-              Comparte el código y la parte de cada persona se actualiza sola en todos los teléfonos.
+              Comparte el código y la parte de cada persona se actualiza sola.
             </Text>
           </View>
-        </HeroCard>
+        </View>
       </Reveal>
 
       <Reveal delay={60}>
@@ -365,14 +370,24 @@ function AmountStep({
               Entre dos serían {formatCents(preview[0])} y {formatCents(preview[1])}.
             </Text>
           ) : null}
+          <View style={[styles.amountDivider, { backgroundColor: palette.border }]} />
+          <TextInput
+            accessibilityLabel="Concepto del gasto"
+            maxLength={40}
+            onChangeText={onConceptChange}
+            placeholder="Agrega un concepto (opcional)"
+            placeholderTextColor={palette.muted}
+            style={[styles.conceptInput, { color: palette.ink }]}
+            value={concept}
+          />
         </Card>
       </Reveal>
 
       <Reveal delay={110}>
-        <Card tone="sage" style={styles.howCard}>
-          <StepRow number="1" label="Escribe el total" />
-          <StepRow number="2" label="Comparte el código" />
-          <StepRow number="3" label="Cada quien paga su parte" />
+        <Card style={styles.howCard}>
+          <StepRow number="1" label="Escribe el total" detail="Ingresa el monto del gasto." />
+          <StepRow number="2" label="Comparte el código" detail="Invita a tus amigos o familia." />
+          <StepRow number="3" label="Cada quien paga su parte" detail="La app actualiza todo automáticamente." />
         </Card>
       </Reveal>
 
@@ -382,6 +397,7 @@ function AmountStep({
         onPress={onContinue}
         style={[styles.primaryButton, { backgroundColor: palette.primary, opacity: busy ? 0.55 : 1 }]}>
         <Text style={styles.primaryLabel}>{busy ? 'Creando…' : 'Crear división'}</Text>
+        <SymbolView name={{ ios: 'arrow.right', android: 'east', web: 'east' }} tintColor="#FFFFFF" size={21} />
       </MotionPressable>
 
       <MotionPressable
@@ -540,7 +556,7 @@ function RoomStep({
 
       <View style={styles.participantSection}>
         <Text style={styles.sectionTitle}>Cada persona paga</Text>
-        <Card tone="sage" style={styles.participantList}>
+        <Card style={styles.participantList}>
           {split.participants.map((person, index) => (
             <ParticipantRow
               key={person.id}
@@ -694,14 +710,17 @@ function NearbyPulse({ active }: { active: boolean }) {
   );
 }
 
-function StepRow({ number, label }: { number: string; label: string }) {
+function StepRow({ number, label, detail }: { number: string; label: string; detail: string }) {
   const palette = usePalette();
   return (
     <View style={styles.stepRow}>
       <View style={[styles.stepNumber, { backgroundColor: palette.surface }]}>
         <Text style={[styles.stepNumberText, { color: palette.accent }]}>{number}</Text>
       </View>
-      <Text style={styles.stepLabel}>{label}</Text>
+      <View style={styles.stepCopy}>
+        <Text style={styles.stepLabel}>{label}</Text>
+        <Text style={[styles.stepDetail, { color: palette.muted }]}>{detail}</Text>
+      </View>
     </View>
   );
 }
@@ -718,36 +737,40 @@ function Message({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 52, gap: 18 },
-  header: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 52, gap: 16 },
+  header: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
   headerSpacer: { width: 42 },
-  title: { fontSize: 18, fontWeight: '700' },
+  title: { fontSize: 19, fontWeight: '700' },
   demoBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 13, paddingVertical: 11 },
   demoBannerCopy: { flex: 1, gap: 3, backgroundColor: 'transparent' },
   demoBannerTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   demoBannerBody: { fontSize: 12, lineHeight: 17 },
-  amountHero: { minHeight: 226, justifyContent: 'space-between' },
-  groupIcon: { width: 50, height: 50, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
+  amountHero: { minHeight: 210, justifyContent: 'flex-end', gap: 22, paddingHorizontal: 12, paddingBottom: 6 },
+  groupIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,59,87,0.10)', alignItems: 'center', justifyContent: 'center' },
   amountHeroCopy: { gap: 9, backgroundColor: 'transparent' },
-  amountHeroTitle: { color: '#FFFFFF', fontSize: 31, lineHeight: 35, fontWeight: '700', letterSpacing: -1.1, maxWidth: 285 },
-  amountHeroBody: { color: 'rgba(255,255,255,0.78)', fontSize: 15, lineHeight: 21, maxWidth: 300 },
-  amountCard: { alignItems: 'center', gap: 10 },
-  amountLabel: { fontSize: 13, fontWeight: '600' },
-  amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
-  amountHint: { fontSize: 12, textAlign: 'center' },
-  currency: { fontSize: 34, lineHeight: 44, fontWeight: '600' },
-  amountInput: { minWidth: 100, maxWidth: 230, fontSize: 44, lineHeight: 52, fontWeight: '700', letterSpacing: -1.5, textAlign: 'center', fontVariant: ['tabular-nums'] },
-  howCard: { gap: 12 },
-  stepRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'transparent' },
-  stepNumber: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  stepNumberText: { fontSize: 13, fontWeight: '700' },
-  stepLabel: { fontSize: 14, fontWeight: '600' },
+  amountHeroTitle: { color: '#FFFFFF', fontSize: 34, lineHeight: 38, fontWeight: '700', letterSpacing: -1.2, maxWidth: 310 },
+  amountHeroBody: { color: '#959EAD', fontSize: 17, lineHeight: 24, maxWidth: 320 },
+  amountCard: { minHeight: 188, gap: 10 },
+  amountLabel: { fontSize: 15, fontWeight: '500' },
+  amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', backgroundColor: 'transparent' },
+  amountHint: { fontSize: 12 },
+  currency: { fontSize: 38, lineHeight: 48, fontWeight: '600' },
+  amountInput: { minWidth: 120, maxWidth: 250, fontSize: 46, lineHeight: 54, fontWeight: '700', letterSpacing: -1.6, fontVariant: ['tabular-nums'] },
+  amountDivider: { height: StyleSheet.hairlineWidth, marginTop: 2 },
+  conceptInput: { minHeight: 44, fontSize: 15 },
+  howCard: { gap: 4, paddingVertical: 18 },
+  stepRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: 'transparent' },
+  stepNumber: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  stepNumberText: { fontSize: 16, fontWeight: '700' },
+  stepCopy: { flex: 1, gap: 4, backgroundColor: 'transparent' },
+  stepLabel: { fontSize: 16, fontWeight: '700' },
+  stepDetail: { fontSize: 13, lineHeight: 18 },
   message: { borderRadius: 15, paddingHorizontal: 14, paddingVertical: 11 },
   messageText: { fontSize: 13, lineHeight: 18, textAlign: 'center', fontWeight: '600' },
-  primaryButton: { minHeight: 58, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { minHeight: 60, borderRadius: 30, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14 },
   primaryLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  secondaryButton: { minHeight: 54, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  secondaryButton: { minHeight: 58, borderRadius: 29, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   secondaryLabel: { fontSize: 14, fontWeight: '700' },
   joinHero: { minHeight: 205, justifyContent: 'space-between' },
   joinFormCard: { gap: 15 },
