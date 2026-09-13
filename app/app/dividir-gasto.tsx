@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useAuth } from '@/components/AuthProvider';
+import { useBanking } from '@/components/BankingProvider';
 import { Card } from '@/components/Card';
 import { FormScroll } from '@/components/FormScroll';
 import { HeroCard } from '@/components/HeroCard';
@@ -57,6 +58,7 @@ export default function DividirGastoScreen() {
   const palette = usePalette();
   const router = useRouter();
   const { verifyTransactionPin, demoPin } = useAuth();
+  const { reload: reloadBanking } = useBanking();
 
   const [step, setStep] = useState<Step>('amount');
   const [amount, setAmount] = useState('');
@@ -87,8 +89,8 @@ export default function DividirGastoScreen() {
   // El código expira; sin este tic la pantalla anunciaría un código muerto.
   useEffect(() => {
     if (step !== 'room') return;
-    // Al entrar, `now` trae la hora en que se monto la pantalla: sin esto el
-    // primer render anuncia mas minutos de los que al codigo le quedan.
+    // Al entrar, `now` trae la hora en que se montó la pantalla: sin esto el
+    // primer render anuncia más minutos de los que al código le quedan.
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
@@ -192,6 +194,9 @@ export default function DividirGastoScreen() {
         return;
       }
       setSplit(await dataSource.paySplitShare(split.request.id, myParticipantId));
+      // El pago sale como transferencia, pero no pasa por sendTransfer: sin este
+      // aviso el saldo disponible de Inicio sigue mostrando el de antes.
+      reloadBanking();
       setPin('');
     } catch (error) {
       setMessage(errorText(error, 'No pudimos registrar tu pago.'));
