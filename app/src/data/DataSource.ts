@@ -1,6 +1,7 @@
 import type {
   Account,
   AnomalyAlert,
+  CashflowForecast,
   CashflowScore,
   Cents,
   Customer,
@@ -8,8 +9,14 @@ import type {
   Id,
   ISODate,
   ISODateTime,
+  IssuedChallenge,
   SavingsRule,
+  Shield,
+  ShieldAlert,
+  ShieldResolution,
   Subscription,
+  Verification,
+  VerificationPurpose,
 } from '@contracts/types';
 
 export type TransactionQuery = {
@@ -165,4 +172,21 @@ export interface DataSource {
   subscribeToSplit(splitId: string, onChange: (split: Split) => void): () => void;
   /** Same contract for new alerts: returns the unsubscribe callback. */
   subscribeToAlerts(accountId: string, onInsert: (alert: AnomalyAlert) => void): () => void;
+
+  /** Mi dinero en 30 días. */
+  getForecast(accountId: string): Promise<CashflowForecast>;
+  getShield(): Promise<Shield>;
+  getShieldAlerts(includeResolved?: boolean): Promise<ShieldAlert[]>;
+  /** «Sí fui yo» needs `verification`: without it the engine answers 428. */
+  resolveShieldAlert(
+    alertId: string,
+    resolution: NonNullable<ShieldAlert['resolution']>,
+    verification?: Verification,
+  ): Promise<ShieldResolution>;
+  /** Making things safer never asks for a code. */
+  lockCard(): Promise<Shield>;
+  releaseShield(verification: Verification): Promise<Shield>;
+  /** Turning it off needs `verification`; turning it on doesn't. */
+  setAutoProtect(enabled: boolean, verification?: Verification): Promise<Shield>;
+  requestChallenge(purpose: VerificationPurpose, target: string): Promise<IssuedChallenge>;
 }

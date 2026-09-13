@@ -1,0 +1,566 @@
+[
+  {
+    "account_id": "acc_checking_0001",
+    "generated_at": "2026-09-12T18:00:00Z",
+    "as_of": "2026-09-12",
+    "horizon_days": 30,
+    "currency": "MXN",
+    "start_balance_cents": 2313600,
+    "buffer_cents": 538533,
+    "status": "healthy",
+    "status_explanation": "Aun con un mes de gasto alto, tu saldo no bajaría de $21,931.45.",
+    "summary": {
+      "safe_to_spend_daily_cents": 187715,
+      "safe_to_spend_days": 17,
+      "safe_to_spend_until": "2026-09-30",
+      "next_income_on": "2026-09-15",
+      "next_income_cents": 1425000,
+      "min_expected_balance_cents": 2281524,
+      "min_expected_on": "2026-09-14",
+      "min_low_balance_cents": 2193145,
+      "min_low_on": "2026-09-14",
+      "end_expected_balance_cents": 3239972,
+      "first_shortfall_on": null
+    },
+    "daily": [
+      {
+        "date": "2026-09-13",
+        "expected_balance_cents": 2290562,
+        "low_balance_cents": 2228069,
+        "high_balance_cents": 2353055,
+        "inflow_cents": 0,
+        "outflow_cents": 23038,
+        "events": []
+      },
+      {
+        "date": "2026-09-14",
+        "expected_balance_cents": 2281524,
+        "low_balance_cents": 2193145,
+        "high_balance_cents": 2369903,
+        "inflow_cents": 0,
+        "outflow_cents": 9038,
+        "events": []
+      },
+      {
+        "date": "2026-09-15",
+        "expected_balance_cents": 3683512,
+        "low_balance_cents": 3575270,
+        "high_balance_cents": 3791754,
+        "inflow_cents": 1425000,
+        "outflow_cents": 23012,
+        "events": [
+          {
+            "label": "Nómina Tecnológica del Norte",
+            "category": "income",
+            "amount_cents": 1425000
+          }
+        ]
+      },
+      {
+        "date": "2026-09-16",
+        "expected_balance_cents": 3647087,
+        "low_balance_cents": 3522100,
+        "high_balance_cents": 3772074,
+        "inflow_cents": 0,
+        "outflow_cents": 36425,
+        "events": []
+      },
+      {
+        "date": "2026-09-17",
+        "expected_balance_cents": 3620825,
+        "low_balance_cents": 3481086,
+        "high_balance_cents": 3760564,
+        "inflow_cents": 0,
+        "outflow_cents": 26262,
+        "events": []
+      },
+      {
+        "date": "2026-09-18",
+        "expected_balance_cents": 3606437,
+        "low_balance_cents": 3453360,
+        "high_balance_cents": 3759514,
+        "inflow_cents": 0,
+        "outflow_cents": 14388,
+        "events": []
+      },
+      {
+        "date": "2026-09-19",
+        "expected_balance_cents": 3542812,
+        "low_balance_cents": 3377470,
+        "high_balance_cents": 3708154,
+        "inflow_cents": 0,
+        "outflow_cents": 63625,
+        "events": []
+      },
+      {
+        "date": "2026-09-20",
+        "expected_balance_cents": 3519774,
+        "low_balance_cents": 3343016,
+        "high_balance_cents": 3696532,
+        "inflow_cents": 0,
+        "outflow_cents": 23038,
+        "events": []
+      },
+      {
+        "date": "2026-09-21",
+        "expected_balance_cents": 3510736,
+        "low_balance_cents": 3323256,
+        "high_balance_cents": 3698216,
+        "inflow_cents": 0,
+        "outflow_cents": 9038,
+        "events": []
+      },
+      {
+        "date": "2026-09-22",
+        "expected_balance_cents": 3487724,
+        "low_balance_cents": 3290103,
+        "high_balance_cents": 3685345,
+        "inflow_cents": 0,
+        "outflow_cents": 23012,
+        "events": []
+      },
+      {
+        "date": "2026-09-23",
+        "expected_balance_cents": 3451299,
+        "low_balance_cents": 3244032,
+        "high_balance_cents": 3658566,
+        "inflow_cents": 0,
+        "outflow_cents": 36425,
+        "events": []
+      },
+      {
+        "date": "2026-09-24",
+        "expected_balance_cents": 3416137,
+        "low_balance_cents": 3199654,
+        "high_balance_cents": 3632620,
+        "inflow_cents": 0,
+        "outflow_cents": 35162,
+        "events": [
+          {
+            "label": "Starbucks",
+            "category": "restaurants",
+            "amount_cents": -8900
+          }
+        ]
+      },
+      {
+        "date": "2026-09-25",
+        "expected_balance_cents": 3401749,
+        "low_balance_cents": 3176426,
+        "high_balance_cents": 3627072,
+        "inflow_cents": 0,
+        "outflow_cents": 14388,
+        "events": []
+      },
+      {
+        "date": "2026-09-26",
+        "expected_balance_cents": 3338124,
+        "low_balance_cents": 3104295,
+        "high_balance_cents": 3571953,
+        "inflow_cents": 0,
+        "outflow_cents": 63625,
+        "events": []
+      },
+      {
+        "date": "2026-09-27",
+        "expected_balance_cents": 3315086,
+        "low_balance_cents": 3073050,
+        "high_balance_cents": 3557122,
+        "inflow_cents": 0,
+        "outflow_cents": 23038,
+        "events": []
+      },
+      {
+        "date": "2026-09-28",
+        "expected_balance_cents": 3306048,
+        "low_balance_cents": 3056075,
+        "high_balance_cents": 3556021,
+        "inflow_cents": 0,
+        "outflow_cents": 9038,
+        "events": []
+      },
+      {
+        "date": "2026-09-29",
+        "expected_balance_cents": 3283036,
+        "low_balance_cents": 3025370,
+        "high_balance_cents": 3540702,
+        "inflow_cents": 0,
+        "outflow_cents": 23012,
+        "events": []
+      },
+      {
+        "date": "2026-09-30",
+        "expected_balance_cents": 4671611,
+        "low_balance_cents": 4406474,
+        "high_balance_cents": 4936748,
+        "inflow_cents": 1425000,
+        "outflow_cents": 36425,
+        "events": [
+          {
+            "label": "Nómina Tecnológica del Norte",
+            "category": "income",
+            "amount_cents": 1425000
+          }
+        ]
+      },
+      {
+        "date": "2026-10-01",
+        "expected_balance_cents": 3695349,
+        "low_balance_cents": 3422947,
+        "high_balance_cents": 3967751,
+        "inflow_cents": 0,
+        "outflow_cents": 976262,
+        "events": [
+          {
+            "label": "Renta Depto Contry",
+            "category": "housing",
+            "amount_cents": -950000
+          }
+        ]
+      },
+      {
+        "date": "2026-10-02",
+        "expected_balance_cents": 3680961,
+        "low_balance_cents": 3401482,
+        "high_balance_cents": 3960440,
+        "inflow_cents": 0,
+        "outflow_cents": 14388,
+        "events": []
+      },
+      {
+        "date": "2026-10-03",
+        "expected_balance_cents": 3605436,
+        "low_balance_cents": 3319056,
+        "high_balance_cents": 3891816,
+        "inflow_cents": 0,
+        "outflow_cents": 75525,
+        "events": [
+          {
+            "label": "Spotify",
+            "category": "streaming",
+            "amount_cents": -11900
+          }
+        ]
+      },
+      {
+        "date": "2026-10-04",
+        "expected_balance_cents": 3582398,
+        "low_balance_cents": 3289278,
+        "high_balance_cents": 3875518,
+        "inflow_cents": 0,
+        "outflow_cents": 23038,
+        "events": []
+      },
+      {
+        "date": "2026-10-05",
+        "expected_balance_cents": 3553460,
+        "low_balance_cents": 3253753,
+        "high_balance_cents": 3853167,
+        "inflow_cents": 0,
+        "outflow_cents": 28938,
+        "events": [
+          {
+            "label": "Netflix",
+            "category": "streaming",
+            "amount_cents": -19900
+          }
+        ]
+      },
+      {
+        "date": "2026-10-06",
+        "expected_balance_cents": 3530448,
+        "low_balance_cents": 3224295,
+        "high_balance_cents": 3836601,
+        "inflow_cents": 0,
+        "outflow_cents": 23012,
+        "events": []
+      },
+      {
+        "date": "2026-10-07",
+        "expected_balance_cents": 3449123,
+        "low_balance_cents": 3136656,
+        "high_balance_cents": 3761590,
+        "inflow_cents": 0,
+        "outflow_cents": 81325,
+        "events": [
+          {
+            "label": "Smart Fit",
+            "category": "fitness",
+            "amount_cents": -44900
+          }
+        ]
+      },
+      {
+        "date": "2026-10-08",
+        "expected_balance_cents": 3422861,
+        "low_balance_cents": 3104206,
+        "high_balance_cents": 3741516,
+        "inflow_cents": 0,
+        "outflow_cents": 26262,
+        "events": []
+      },
+      {
+        "date": "2026-10-09",
+        "expected_balance_cents": 3408473,
+        "low_balance_cents": 3083748,
+        "high_balance_cents": 3733198,
+        "inflow_cents": 0,
+        "outflow_cents": 14388,
+        "events": []
+      },
+      {
+        "date": "2026-10-10",
+        "expected_balance_cents": 3272048,
+        "low_balance_cents": 2941365,
+        "high_balance_cents": 3602731,
+        "inflow_cents": 0,
+        "outflow_cents": 136425,
+        "events": [
+          {
+            "label": "Telmex",
+            "category": "telecom",
+            "amount_cents": -63900
+          },
+          {
+            "label": "Starbucks",
+            "category": "restaurants",
+            "amount_cents": -8900
+          }
+        ]
+      },
+      {
+        "date": "2026-10-11",
+        "expected_balance_cents": 3249010,
+        "low_balance_cents": 2912473,
+        "high_balance_cents": 3585547,
+        "inflow_cents": 0,
+        "outflow_cents": 23038,
+        "events": []
+      },
+      {
+        "date": "2026-10-12",
+        "expected_balance_cents": 3239972,
+        "low_balance_cents": 2897682,
+        "high_balance_cents": 3582262,
+        "inflow_cents": 0,
+        "outflow_cents": 9038,
+        "events": []
+      }
+    ],
+    "streams": [
+      {
+        "label": "Renta Depto Contry",
+        "category": "housing",
+        "category_label": "Vivienda",
+        "cadence": "monthly",
+        "cadence_label": "mensual",
+        "amount_cents": -950000,
+        "monthly_cents": -950000
+      },
+      {
+        "label": "Telmex",
+        "category": "telecom",
+        "category_label": "Internet y telefonía",
+        "cadence": "monthly",
+        "cadence_label": "mensual",
+        "amount_cents": -63900,
+        "monthly_cents": -63900
+      },
+      {
+        "label": "Smart Fit",
+        "category": "fitness",
+        "category_label": "Gimnasio",
+        "cadence": "monthly",
+        "cadence_label": "mensual",
+        "amount_cents": -44900,
+        "monthly_cents": -44900
+      },
+      {
+        "label": "Netflix",
+        "category": "streaming",
+        "category_label": "Streaming",
+        "cadence": "monthly",
+        "cadence_label": "mensual",
+        "amount_cents": -19900,
+        "monthly_cents": -19900
+      },
+      {
+        "label": "Spotify",
+        "category": "streaming",
+        "category_label": "Streaming",
+        "cadence": "monthly",
+        "cadence_label": "mensual",
+        "amount_cents": -11900,
+        "monthly_cents": -11900
+      },
+      {
+        "label": "Starbucks",
+        "category": "restaurants",
+        "category_label": "Restaurantes y café",
+        "cadence": "semimonthly",
+        "cadence_label": "quincenal",
+        "amount_cents": -8900,
+        "monthly_cents": -17800
+      },
+      {
+        "label": "Nómina Tecnológica del Norte",
+        "category": "income",
+        "category_label": "Ingresos",
+        "cadence": "semimonthly",
+        "cadence_label": "quincenal",
+        "amount_cents": 1425000,
+        "monthly_cents": 2850000
+      }
+    ],
+    "spending": {
+      "income_30d_cents": 2850000,
+      "recurring_monthly_cents": 1108400,
+      "variable_30d_cents": 1195200,
+      "recurring_ratio": 0.389,
+      "categories": [
+        {
+          "category": "housing",
+          "label": "Vivienda",
+          "last_30d_cents": 950000,
+          "prev_30d_cents": 950000,
+          "change_pct": 0.0,
+          "is_recurring": true
+        },
+        {
+          "category": "shopping",
+          "label": "Compras",
+          "last_30d_cents": 470800,
+          "prev_30d_cents": 0,
+          "change_pct": null,
+          "is_recurring": false
+        },
+        {
+          "category": "groceries",
+          "label": "Súper",
+          "last_30d_cents": 316200,
+          "prev_30d_cents": 128400,
+          "change_pct": 1.463,
+          "is_recurring": false
+        },
+        {
+          "category": "delivery",
+          "label": "Comida a domicilio",
+          "last_30d_cents": 95500,
+          "prev_30d_cents": 56400,
+          "change_pct": 0.693,
+          "is_recurring": false
+        },
+        {
+          "category": "utilities",
+          "label": "Luz y agua",
+          "last_30d_cents": 91500,
+          "prev_30d_cents": 84200,
+          "change_pct": 0.087,
+          "is_recurring": false
+        },
+        {
+          "category": "fuel",
+          "label": "Gasolina",
+          "last_30d_cents": 81500,
+          "prev_30d_cents": 78000,
+          "change_pct": 0.045,
+          "is_recurring": false
+        },
+        {
+          "category": "convenience",
+          "label": "Tiendas de conveniencia",
+          "last_30d_cents": 64700,
+          "prev_30d_cents": 14300,
+          "change_pct": 3.524,
+          "is_recurring": false
+        },
+        {
+          "category": "telecom",
+          "label": "Internet y telefonía",
+          "last_30d_cents": 63900,
+          "prev_30d_cents": 63900,
+          "change_pct": 0.0,
+          "is_recurring": true
+        },
+        {
+          "category": "fitness",
+          "label": "Gimnasio",
+          "last_30d_cents": 44900,
+          "prev_30d_cents": 44900,
+          "change_pct": 0.0,
+          "is_recurring": true
+        },
+        {
+          "category": "streaming",
+          "label": "Streaming",
+          "last_30d_cents": 35800,
+          "prev_30d_cents": 31800,
+          "change_pct": 0.126,
+          "is_recurring": true
+        },
+        {
+          "category": "transport",
+          "label": "Transporte",
+          "last_30d_cents": 34200,
+          "prev_30d_cents": 9800,
+          "change_pct": 2.49,
+          "is_recurring": false
+        },
+        {
+          "category": "health",
+          "label": "Salud",
+          "last_30d_cents": 21800,
+          "prev_30d_cents": 0,
+          "change_pct": null,
+          "is_recurring": false
+        },
+        {
+          "category": "fees",
+          "label": "Comisiones",
+          "last_30d_cents": 19000,
+          "prev_30d_cents": 0,
+          "change_pct": null,
+          "is_recurring": false
+        },
+        {
+          "category": "restaurants",
+          "label": "Restaurantes y café",
+          "last_30d_cents": 18200,
+          "prev_30d_cents": 7500,
+          "change_pct": 1.427,
+          "is_recurring": true
+        }
+      ]
+    },
+    "recommendations": [
+      {
+        "id": "safe_to_save",
+        "kind": "safe_to_save",
+        "priority": "low",
+        "title": "Puedes apartar $6,900.00 hoy",
+        "explanation": "Aun con un mes de gasto alto tu saldo no bajaría de $21,931.45. Apartar esto a Ahorro Meta Viaje te deja más de $8,078.00 para imprevistos.",
+        "amount_cents": 690000,
+        "due_on": null,
+        "impact_cents": 690000,
+        "action": {
+          "type": "move_money",
+          "label": "Apartar $6,900.00",
+          "from_account_id": "acc_checking_0001",
+          "to_account_id": "acc_savings_0001",
+          "amount_cents": 690000
+        }
+      },
+      {
+        "id": "spending_creep:delivery",
+        "kind": "spending_creep",
+        "priority": "low",
+        "title": "Comida a domicilio: +69% este mes",
+        "explanation": "Llevas $955.00 en 30 días contra $564.00 en los 30 anteriores. Volver a tu ritmo te deja $391.00 al mes.",
+        "amount_cents": 39100,
+        "due_on": null,
+        "impact_cents": 39100,
+        "action": null
+      }
+    ]
+  }
+]

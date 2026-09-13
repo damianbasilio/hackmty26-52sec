@@ -1,16 +1,25 @@
 import type {
   Account,
   AnomalyAlert,
+  CashflowForecast,
   CashflowScore,
   Customer,
   EnrichedTransaction,
+  IssuedChallenge,
   SavingsRule,
+  Shield,
+  ShieldAlert,
+  ShieldEvent,
+  ShieldResolution,
   Subscription,
+  Verification,
+  VerificationPurpose,
 } from '@contracts/types';
 
 import accountsJson from '@contracts/fixtures/accounts.json';
 import alertsJson from '@contracts/fixtures/anomaly_alerts.json';
 import customersJson from '@contracts/fixtures/customers.json';
+import forecastsJson from '@contracts/fixtures/cashflow_forecasts.json';
 import enrichedJson from '@contracts/fixtures/enriched_transactions.json';
 import rulesJson from '@contracts/fixtures/savings_rules.json';
 import scoresJson from '@contracts/fixtures/cashflow_scores.json';
@@ -38,6 +47,7 @@ const subscriptions = subscriptionsJson as Subscription[];
 const alerts = alertsJson as AnomalyAlert[];
 const scores = scoresJson as CashflowScore[];
 const rules = rulesJson as SavingsRule[];
+const forecasts = forecastsJson as CashflowForecast[];
 
 /** Mutations only live in memory; a reload resets them. Good enough for the demo. */
 const resolved = new Map<string, NonNullable<AnomalyAlert['resolution']>>();
@@ -52,6 +62,54 @@ const splitRequests = new Map<string, SplitRequest>();
 const splitParticipants = new Map<string, SplitParticipant[]>();
 const transfers: Transfer[] = [];
 const splitListeners = new Map<string, Set<(split: Split) => void>>();
+
+/** Escudo de la demo. Sobre estos fixtures el sentinel no ve ningún patrón: sin alertas, solo tarjeta y ajustes. */
+const shieldState = {
+  cardLocked: false,
+  autoProtect: true,
+  timeline: [] as ShieldEvent[],
+  challenge: null as (IssuedChallenge & { attemptsLeft: number }) | null,
+};
+
+function shieldNote(kind: ShieldEvent['kind'], title: string, detail: string) {
+  shieldState.timeline.unshift({ at: new Date().toISOString(), kind, title, detail });
+}
+
+function shieldSnapshot(): Shield {
+  return {
+    status: shieldState.cardLocked ? 'protecting' : 'normal',
+    settings: { auto_protect: shieldState.autoProtect },
+    card_locked: shieldState.cardLocked,
+    incident_id: null,
+    open_alerts: 0,
+    blocked_clabes: [],
+    cases: [],
+    timeline: shieldState.timeline.slice(0, 40),
+  };
+}
+
+/** Mismas reglas que shield.verify en el engine: un solo uso, 5 minutos, 3 intentos. */
+function verifyChallenge(verification: Verification | undefined, purpose: VerificationPurpose, target: string) {
+  if (!verification) throw new Error('Esta acción necesita tu código de verificación.');
+  const current = shieldState.challenge;
+  if (!current || current.challenge.id !== verification.challenge_id
+    || current.challenge.purpose !== purpose || current.challenge.target !== target) {
+    throw new Error('Pide un código nuevo para esta acción.');
+  }
+  if (Date.now() > new Date(current.challenge.expires_at).getTime()) {
+    shieldState.challenge = null;
+    throw new Error('El código expiró. Pide uno nuevo.');
+  }
+  if (verification.code.trim() !== current.code) {
+    current.attemptsLeft -= 1;
+    if (current.attemptsLeft <= 0) {
+      shieldState.challenge = null;
+      throw new Error('Demasiados intentos. Pide un código nuevo.');
+    }
+    throw new Error(`El código no coincide. Te quedan ${current.attemptsLeft} intento(s).`);
+  }
+  shieldState.challenge = null;
+}
 
 let sequence = 0;
 function nextId(prefix: string): string {
@@ -411,5 +469,67 @@ export class FixtureDataSource implements DataSource {
   /** Los fixtures son un corte fijo: no nacen alertas nuevas mientras la app corre. */
   subscribeToAlerts(): () => void {
     return () => {};
+  }
+
+  async getForecast(accountId: string): Promise<CashflowForecast> {
+    const forecast = forecasts.find((f) => f.account_id === accountId);
+    if (!forecast) throw new Error('Todavía no hay movimientos para pronosticar tu saldo.');
+    return forecast;
+  }
+
+  async getShield(): Promise<Shield> {
+    return shieldSnapshot();
+  }
+
+  async getShieldAlerts(): Promise<ShieldAlert[]> {
+    return [];
+  }
+
+  async resolveShieldAlert(alertId: string): Promise<ShieldResolution> {
+    throw new Error(`No existe la alerta ${alertId}.`);
+  }
+
+  async lockCard(): Promise<Shield> {
+    if (!shieldState.cardLocked) {
+      shieldState.cardLocked = true;
+      shieldNote('card_locked', 'Bloqueaste tu tarjeta', 'Compras y retiros con tarjeta quedan detenidos.');
+    }
+    return shieldSnapshot();
+  }
+
+  async releaseShield(verification: Verification): Promise<Shield> {
+    verifyChallenge(verification, 'release_protection', 'shield');
+    if (shieldState.cardLocked) {
+      shieldState.cardLocked = false;
+      shieldNote('card_unlocked', 'Desbloqueaste tu tarjeta', 'Verificaste tu identidad.');
+    }
+    return shieldSnapshot();
+  }
+
+  async setAutoProtect(enabled: boolean, verification?: Verification): Promise<Shield> {
+    if (shieldState.autoProtect && !enabled) verifyChallenge(verification, 'change_settings', 'settings');
+    if (enabled !== shieldState.autoProtect) {
+      shieldState.autoProtect = enabled;
+      shieldNote('settings', 'Cambiaste tu protección', `Protección automática ${enabled ? 'activada' : 'apagada'}.`);
+    }
+    return shieldSnapshot();
+  }
+
+  async requestChallenge(purpose: VerificationPurpose, target: string): Promise<IssuedChallenge> {
+    const valid = (purpose === 'release_protection' && target === 'shield' && shieldState.cardLocked)
+      || (purpose === 'change_settings' && target === 'settings');
+    if (!valid) throw new Error('No hay nada que verificar para esa acción.');
+    const issued: IssuedChallenge = {
+      challenge: {
+        id: nextId('chl'),
+        purpose,
+        target,
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        attempts_left: 3,
+      },
+      code: String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'),
+    };
+    shieldState.challenge = { ...issued, attemptsLeft: 3 };
+    return issued;
   }
 }

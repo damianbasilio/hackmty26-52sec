@@ -9,14 +9,17 @@ from .routers import (
     accounts,
     anomalies,
     customers,
+    forecast,
     savings,
     score,
+    shield,
     splits,
     subscriptions,
     sync,
     transactions,
     transfers,
 )
+from .shield_store import ShieldError
 from .transfers import TransferError
 
 settings = get_settings()
@@ -51,6 +54,11 @@ def handle_transfer_error(request: Request, exc: TransferError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
+@app.exception_handler(ShieldError)
+def handle_shield_error(request: Request, exc: ShieldError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+
+
 app.include_router(customers.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
@@ -61,6 +69,8 @@ app.include_router(score.router)
 app.include_router(savings.router)
 app.include_router(transfers.router)
 app.include_router(splits.router)
+app.include_router(forecast.router)
+app.include_router(shield.router)
 
 
 @app.get("/health", tags=["meta"])

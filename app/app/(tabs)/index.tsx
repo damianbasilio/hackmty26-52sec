@@ -11,6 +11,7 @@ import { BrandLogo } from '@/components/BrandLogo';
 import { Card } from '@/components/Card';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
+import { OptionSheet } from '@/components/OptionSheet';
 import { PremiumSurface } from '@/components/PremiumSurface';
 import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
@@ -29,6 +30,12 @@ const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
 
 type Resolution = NonNullable<AnomalyAlert['resolution']>;
 
+const MORE_OPTIONS = [
+  { key: '/clave-dinamica', label: 'Clave dinámica', detail: 'Tu código para operar' },
+  { key: '/mi-dinero', label: 'Mi dinero', detail: 'Cuánto puedes gastar y tu saldo en 30 días' },
+  { key: '/escudo', label: 'Escudo', detail: 'Protección contra fraudes en tu cuenta' },
+];
+
 const RESOLUTIONS: { value: Resolution; label: string }[] = [
   { value: 'confirmed_legit', label: 'Sí fui yo' },
   { value: 'confirmed_fraud', label: 'No fui yo' },
@@ -46,6 +53,7 @@ export default function InicioScreen() {
   const router = useRouter();
   const { lock, firstName } = useAuth();
   const [resolvedIds, setResolvedIds] = useState<string[]>([]);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const { data, error, loading, reload } = useAsync(async () => {
     const accounts = await dataSource.getAccounts();
@@ -149,7 +157,7 @@ export default function InicioScreen() {
             symbol={{ ios: 'ellipsis', android: 'more_horiz', web: 'more_horiz' }}
             tint={palette.muted}
             tone={palette.surfaceAlt}
-            onPress={() => router.push('/clave-dinamica' as never)}
+            onPress={() => setMoreOpen(true)}
           />
         </Reveal>
 
@@ -304,6 +312,18 @@ export default function InicioScreen() {
           </Card>
         </Reveal>
       </ScrollView>
+
+      <OptionSheet
+        visible={moreOpen}
+        title="Más"
+        options={MORE_OPTIONS}
+        selectedKey={null}
+        onSelect={(key) => {
+          setMoreOpen(false);
+          router.push(key as never);
+        }}
+        onClose={() => setMoreOpen(false)}
+      />
     </PremiumSurface>
   );
 }

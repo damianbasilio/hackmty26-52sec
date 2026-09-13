@@ -312,6 +312,216 @@ export interface SavingsRule {
 }
 
 // ---------------------------------------------------------------------------
+// Mi dinero y Escudo — produced by lane B (forecast_engine, sentinel_engine)
+// ---------------------------------------------------------------------------
+
+/** Split out of `other` by the shield engines only: a stolen card shops in these. Not in the DB enum. */
+export type ShieldMerchantCategory = 'electronics' | 'jewelry' | 'gift_cards' | 'travel';
+
+export type ForecastCategory = MerchantCategory | ShieldMerchantCategory;
+
+export type ForecastStatus = 'healthy' | 'watch' | 'critical';
+
+export type StreamCadence = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
+
+/** A recurring payment or income projected onto a day. */
+export interface ForecastEvent {
+  label: string;
+  category: ForecastCategory;
+  /** Signed: negative = money out. */
+  amount_cents: Cents;
+}
+
+export interface ForecastDay {
+  date: ISODate;
+  expected_balance_cents: Cents;
+  /** "Un mes de gasto alto". */
+  low_balance_cents: Cents;
+  /** "Un mes tranquilo". */
+  high_balance_cents: Cents;
+  inflow_cents: Cents;
+  outflow_cents: Cents;
+  events: ForecastEvent[];
+}
+
+export interface ForecastSummary {
+  /** What can go to variable spending per day until safe_to_spend_until, after bills and the buffer. */
+  safe_to_spend_daily_cents: Cents;
+  safe_to_spend_days: number;
+  /** First income at least a week away; null when there is no regular income. */
+  safe_to_spend_until: ISODate | null;
+  next_income_on: ISODate | null;
+  next_income_cents: Cents | null;
+  min_expected_balance_cents: Cents;
+  min_expected_on: ISODate;
+  min_low_balance_cents: Cents;
+  min_low_on: ISODate;
+  end_expected_balance_cents: Cents;
+  first_shortfall_on: ISODate | null;
+}
+
+export interface RecurringStream {
+  label: string;
+  category: ForecastCategory;
+  category_label: string;
+  cadence: StreamCadence;
+  /** es-MX, e.g. `quincenal`. */
+  cadence_label: string;
+  amount_cents: Cents;
+  monthly_cents: Cents;
+}
+
+export interface SpendingCategory {
+  category: ForecastCategory;
+  label: string;
+  last_30d_cents: Cents;
+  prev_30d_cents: Cents;
+  /** 0.2 === +20%. Null when there was nothing to compare against. */
+  change_pct: number | null;
+  is_recurring: boolean;
+}
+
+export interface SpendingBreakdown {
+  income_30d_cents: Cents;
+  recurring_monthly_cents: Cents;
+  variable_30d_cents: Cents;
+  recurring_ratio: number | null;
+  /** Outflows only, biggest first. */
+  categories: SpendingCategory[];
+}
+
+export type ForecastRecommendationKind =
+  | 'cover_from_savings'
+  | 'shortfall_warning'
+  | 'pause_before_low'
+  | 'safe_to_save'
+  | 'spending_creep';
+
+export type RecommendationAction =
+  | { type: 'move_money'; label: string; from_account_id: Id; to_account_id: Id; amount_cents: Cents }
+  | { type: 'open_subscriptions'; label: string };
+
+export interface ForecastRecommendation {
+  id: string;
+  kind: ForecastRecommendationKind;
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  explanation: string;
+  amount_cents: Cents;
+  due_on: ISODate | null;
+  impact_cents: Cents;
+  action: RecommendationAction | null;
+}
+
+/** Mi dinero en 30 días for one account. Produced by lane B. */
+export interface CashflowForecast {
+  account_id: Id;
+  generated_at: ISODateTime;
+  /** Local day the projection starts after. */
+  as_of: ISODate;
+  horizon_days: number;
+  currency: Currency;
+  start_balance_cents: Cents;
+  /** Seven days of the customer's own spending. */
+  buffer_cents: Cents;
+  status: ForecastStatus;
+  status_explanation: string;
+  summary: ForecastSummary;
+  daily: ForecastDay[];
+  streams: RecurringStream[];
+  spending: SpendingBreakdown;
+  recommendations: ForecastRecommendation[];
+}
+
+export type ShieldSignalKind = 'transfer_velocity' | 'category_hop' | 'new_payee' | 'balance_drain' | 'off_hours';
+
+export interface ShieldSignal extends Omit<AnomalySignal, 'kind'> {
+  kind: ShieldSignalKind;
+}
+
+/** Behavior pattern across several movements. Lives in engine memory, not in anomaly_alerts. */
+export interface ShieldAlert extends Omit<AnomalyAlert, 'signals'> {
+  signals: ShieldSignal[];
+  /** Every movement of the incident, the opening one included. */
+  related_transaction_ids: Id[];
+  updated_at: ISODateTime;
+}
+
+export type ShieldStatus = 'normal' | 'attention' | 'protecting';
+
+export interface BlockedClabe {
+  last_four: string;
+  /** es-MX bank name, e.g. `STP`. */
+  bank: string;
+}
+
+/** Aclaración opened by «No fui yo». */
+export interface ProtectionCase {
+  /** `ACL-XXXXXX`. */
+  id: string;
+  alert_id: Id;
+  status: 'open';
+  opened_at: ISODateTime;
+  transaction_ids: Id[];
+  disputed_cents: Cents;
+  blocked_clabes: BlockedClabe[];
+  /** es-MX, in order. */
+  next_steps: string[];
+}
+
+export type ShieldEventKind = 'alert' | 'card_locked' | 'card_unlocked' | 'verified' | 'case_opened' | 'dismissed' | 'settings';
+
+/** One line of «Lo que hicimos por ti». */
+export interface ShieldEvent {
+  at: ISODateTime;
+  kind: ShieldEventKind;
+  title: string;
+  detail: string;
+}
+
+export interface Shield {
+  status: ShieldStatus;
+  settings: { auto_protect: boolean };
+  card_locked: boolean;
+  incident_id: Id | null;
+  open_alerts: number;
+  blocked_clabes: BlockedClabe[];
+  /** Newest first. */
+  cases: ProtectionCase[];
+  /** Newest first, at most 40. */
+  timeline: ShieldEvent[];
+}
+
+export type VerificationPurpose = 'release_protection' | 'confirm_legit' | 'change_settings';
+
+/** Server-issued, single use: 5 minutes and 3 attempts. */
+export interface VerificationChallenge {
+  id: Id;
+  purpose: VerificationPurpose;
+  /** Alert id, `shield` or `settings`. */
+  target: string;
+  expires_at: ISODateTime;
+  attempts_left: number;
+}
+
+export interface IssuedChallenge {
+  challenge: VerificationChallenge;
+  /** Six digits. Travels in the response only until an SMS or push channel exists. */
+  code: string;
+}
+
+export interface Verification {
+  challenge_id: Id;
+  code: string;
+}
+
+export interface ShieldResolution {
+  alert: ShieldAlert;
+  case: ProtectionCase | null;
+  shield: Shield;
+}
+
+// ---------------------------------------------------------------------------
 // Fixture bundle — the exact shape of /contracts/fixtures
 // ---------------------------------------------------------------------------
 
@@ -326,4 +536,5 @@ export interface FixtureBundle {
   anomaly_alerts: AnomalyAlert[];
   cashflow_scores: CashflowScore[];
   savings_rules: SavingsRule[];
+  cashflow_forecasts: CashflowForecast[];
 }
