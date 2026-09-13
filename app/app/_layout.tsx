@@ -1,13 +1,13 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/components/AuthProvider';
 import { BankingProvider } from '@/components/BankingProvider';
-import { useColorScheme } from '@/components/useColorScheme';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -30,7 +30,6 @@ export default function RootLayout() {
 }
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
   // Saldos, comprobantes y la clave dinámica no deben terminar en una captura.
   // Solo nativo: en web el módulo no existe y el hook deja una promesa rechazada.
   // EXPO_PUBLIC_ALLOW_SCREEN_CAPTURE=1 lo apaga para poder grabar la demo.
@@ -45,7 +44,8 @@ function RootLayoutNav() {
   return (
     <AuthProvider>
       <BankingProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <ThemeProvider value={DarkTheme}>
+          <StatusBar style="light" />
           <AuthGate />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="sign-in" />

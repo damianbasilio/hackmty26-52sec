@@ -89,7 +89,7 @@ export function transactionReceipt(txn: EnrichedTransaction, account: Account): 
 
 function receiptText(doc: ReceiptDocument): string {
   return [
-    `${doc.kind} · 52pay`,
+    `${doc.kind} · 52Pay`,
     '',
     `Monto: ${formatCents(Math.abs(doc.amountCents))} MXN`,
     `Estado: ${doc.status.label}`,
@@ -122,33 +122,33 @@ export function receiptHtml(doc: ReceiptDocument, issuedAt = new Date().toISOStr
 <style>
   @page { margin: 0; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #F2F4F7; color: #071A3D; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+  body { margin: 0; background: #070A0D; color: #F7F8FA; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; }
   .page { padding: 56px 52px; }
-  .card { background: #FFFFFF; border: 1px solid #E1E5EB; border-radius: 20px; overflow: hidden; }
-  .header { background: #004977; color: #FFFFFF; padding: 26px 34px; display: flex; align-items: center; gap: 14px; }
-  .mark { width: 46px; height: 46px; border-radius: 13px; background: #FFFFFF; color: #004977; font-weight: 800; font-size: 16px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
-  .mark span { position: absolute; width: 62px; height: 6px; border-radius: 6px; background: #D03027; top: 8px; right: -18px; transform: rotate(-18deg); }
+  .card { background: #11161C; border: 1px solid #28313A; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 48px rgba(0,0,0,0.34); }
+  .header { background: #11161C; color: #FFFFFF; padding: 26px 34px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid #28313A; }
+  .mark { width: 46px; height: 46px; border-radius: 14px; background: #171D24; color: #FFFFFF; font-weight: 800; font-size: 17px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .mark span { position: absolute; width: 10px; height: 26px; border-radius: 3px; background: #FF3B57; top: 10px; right: 7px; transform: skewX(-24deg); }
   .brand { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
   .brand small { display: block; margin-top: 3px; font-size: 12px; font-weight: 500; opacity: 0.78; }
-  .summary { padding: 34px 34px 28px; text-align: center; border-bottom: 1px dashed #CDD3DC; }
-  .kind { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: #667080; }
+  .summary { padding: 34px 34px 28px; text-align: center; border-bottom: 1px dashed #38414D; }
+  .kind { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: #959EAD; }
   .amount { margin: 12px 0 6px; font-size: 46px; font-weight: 800; letter-spacing: -1.2px; }
-  .amount small { font-size: 16px; font-weight: 600; color: #667080; letter-spacing: 0; }
-  .headline { font-size: 16px; color: #3A4556; }
+  .amount small { font-size: 16px; font-weight: 600; color: #959EAD; letter-spacing: 0; }
+  .headline { font-size: 16px; color: #C7CFDA; }
   .pill { display: inline-block; margin-top: 16px; padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 700; background: ${tone.background}; color: ${tone.color}; }
   table { width: 100%; border-collapse: collapse; }
-  td { padding: 14px 34px; font-size: 14px; line-height: 1.4; border-bottom: 1px solid #EEF1F4; vertical-align: top; }
-  td.label { width: 38%; color: #667080; }
+  td { padding: 14px 34px; font-size: 14px; line-height: 1.4; border-bottom: 1px solid #28313A; vertical-align: top; }
+  td.label { width: 38%; color: #959EAD; }
   td.value { text-align: right; font-weight: 600; word-break: break-word; }
-  .folio { display: flex; justify-content: space-between; gap: 16px; padding: 18px 34px; background: #F7F8FA; font-size: 12px; color: #667080; }
-  .folio strong { color: #071A3D; font-family: Menlo, 'Courier New', monospace; font-weight: 600; word-break: break-all; text-align: right; }
-  .footer { margin: 24px 12px 0; text-align: center; font-size: 11px; line-height: 1.6; color: #8A93A3; }
+  .folio { display: flex; justify-content: space-between; gap: 16px; padding: 18px 34px; background: #171D24; font-size: 12px; color: #959EAD; }
+  .folio strong { color: #F7F8FA; font-family: Menlo, 'Courier New', monospace; font-weight: 600; word-break: break-all; text-align: right; }
+  .footer { margin: 24px 12px 0; text-align: center; font-size: 11px; line-height: 1.6; color: #7F8997; }
 </style></head>
 <body><div class="page">
   <div class="card">
     <div class="header">
-      <div class="mark"><span></span>C1</div>
-      <div class="brand">Capital One<small>52pay · Banca inteligente</small></div>
+      <div class="mark"><span></span>52</div>
+      <div class="brand">52Pay<small>Banca inteligente</small></div>
     </div>
     <div class="summary">
       <div class="kind">${escapeHtml(doc.kind)}</div>
@@ -160,7 +160,7 @@ export function receiptHtml(doc: ReceiptDocument, issuedAt = new Date().toISOStr
     <div class="folio"><span>Folio de operación</span><strong>${escapeHtml(doc.folio)}</strong></div>
   </div>
   <p class="footer">
-    Comprobante generado en 52pay el ${escapeHtml(when(issuedAt))}.<br />
+    Comprobante generado en 52Pay el ${escapeHtml(when(issuedAt))}.<br />
     Operación del entorno de pruebas de Capital One (Nessie). No tiene validez fiscal.
   </p>
 </div></body></html>`;

@@ -34,6 +34,7 @@ const MAX_RECENT_ACCOUNTS = 5;
 const DEMO_EMAIL = process.env.EXPO_PUBLIC_DEMO_EMAIL ?? '';
 const DEMO_PASSWORD = process.env.EXPO_PUBLIC_DEMO_PASSWORD ?? '';
 const DEMO_PIN = process.env.EXPO_PUBLIC_DEMO_PIN ?? '';
+let developmentPin: string | null = null;
 
 type AuthResult = { ok: true } | { ok: false; message: string };
 type SignUpResult = { ok: true; needsConfirmation: boolean } | { ok: false; message: string };
@@ -85,9 +86,9 @@ function pinKey(userId: string) {
 async function readStoredPin(userId: string | null): Promise<string | null> {
   if (!userId) return null;
   try {
-    return await SecureStore.getItemAsync(pinKey(userId));
+    return (await SecureStore.getItemAsync(pinKey(userId))) ?? (__DEV__ ? developmentPin : null);
   } catch {
-    return null;
+    return __DEV__ ? developmentPin : null;
   }
 }
 
@@ -371,7 +372,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
         keychainAccessible: SecureStore.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
       });
     } catch {
-      return { ok: false, message: 'Este dispositivo no permitió guardar tu PIN de forma segura.' };
+      if (__DEV__) {
+        try {
+          await SecureStore.setItemAsync(pinKey(userId), pin, {
+            keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+          });
+        } catch {
+          developmentPin = pin;
+        }
+      } else {
+        return { ok: false, message: 'Este dispositivo no permitió guardar tu PIN de forma segura.' };
+      }
     }
     setNeedsPinSetup(false);
     setSessionLocked(false);

@@ -1,19 +1,21 @@
 import { Link, Stack } from 'expo-router';
 import { StyleSheet } from 'react-native';
 
-import { Text, View } from '@/components/Themed';
+import { PremiumSurface } from '@/components/PremiumSurface';
+import { Text } from '@/components/Themed';
 
 export default function NotFoundScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: 'Oops!' }} />
-      <View style={styles.container}>
-        <Text style={styles.title}>This screen doesn't exist.</Text>
+      <Stack.Screen options={{ title: 'Página no encontrada', headerStyle: { backgroundColor: '#070A0D' }, headerTintColor: '#F7F8FA' }} />
+      <PremiumSurface style={styles.container}>
+        <Text style={styles.code}>404</Text>
+        <Text style={styles.title}>Esta pantalla no existe.</Text>
 
         <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Go to home screen!</Text>
+          <Text style={styles.linkText}>Volver a Inicio</Text>
         </Link>
-      </View>
+      </PremiumSurface>
     </>
   );
 }
@@ -26,15 +28,22 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    color: '#F7F8FA',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  code: {
+    color: '#FF3B57',
+    fontSize: 72,
+    fontWeight: '800',
   },
   link: {
     marginTop: 15,
     paddingVertical: 15,
   },
   linkText: {
-    fontSize: 14,
-    color: '#2e78b7',
+    fontSize: 16,
+    color: '#FF3B57',
+    fontWeight: '700',
   },
 });

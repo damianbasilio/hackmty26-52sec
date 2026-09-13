@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/components/AuthProvider';
+import { BrandLogo } from '@/components/BrandLogo';
 import { Card } from '@/components/Card';
 import { FormScroll } from '@/components/FormScroll';
 import { HeroCard } from '@/components/HeroCard';
@@ -233,13 +234,9 @@ export default function SignInScreen() {
     <PremiumSurface>
       <FormScroll contentContainerStyle={styles.content}>
         <Reveal style={styles.brandRow}>
-          <View style={styles.brandMark}>
-            <View style={[styles.brandSweep, { backgroundColor: palette.danger }]} />
-            <Text style={styles.brandLetter}>C1</Text>
-          </View>
+          <BrandLogo />
           <View style={styles.brandCopy}>
-            <Text style={styles.brandName}>Capital One</Text>
-            <Text style={[styles.brandLabel, { color: palette.muted }]}>52pay · Banca inteligente</Text>
+            <Text style={[styles.brandLabel, { color: palette.muted }]}>Banca inteligente</Text>
           </View>
         </Reveal>
 
@@ -574,12 +571,8 @@ export default function SignInScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 44, gap: 20 },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  brandMark: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: '#004977' },
-  brandSweep: { position: 'absolute', width: 58, height: 7, borderRadius: 999, top: 7, right: -17, transform: [{ rotate: '-18deg' }] },
-  brandLetter: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', letterSpacing: -0.6 },
-  brandCopy: { gap: 2 },
-  brandName: { fontSize: 19, fontWeight: '700', letterSpacing: -0.35 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  brandCopy: { gap: 2, alignItems: 'flex-end' },
   brandLabel: { fontSize: 12 },
   hero: { minHeight: 218, justifyContent: 'space-between' },
   heroLock: { width: 46, height: 46, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
@@ -608,7 +601,7 @@ const styles = StyleSheet.create({
   recentRemove: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   lockMessage: { borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10 },
   lockMessageText: { fontSize: 13, lineHeight: 18, textAlign: 'center', fontWeight: '600' },
-  primaryButton: { minHeight: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { minHeight: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
   primaryLabel: { fontSize: 16, fontWeight: '700' },
   secondaryButton: { minHeight: 50, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingHorizontal: 12 },
   secondaryLabel: { fontSize: 15, fontWeight: '700' },

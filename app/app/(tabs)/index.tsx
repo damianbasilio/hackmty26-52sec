@@ -7,6 +7,7 @@ import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimate
 import type { AnomalyAlert, AnomalySeverity, EnrichedTransaction } from '@contracts/types';
 
 import { useAuth } from '@/components/AuthProvider';
+import { BrandLogo } from '@/components/BrandLogo';
 import { Card } from '@/components/Card';
 import { HeroCard } from '@/components/HeroCard';
 import { MotionPressable, Reveal } from '@/components/Motion';
@@ -18,7 +19,7 @@ import { usePalette, type Palette } from '@/components/palette';
 import { Chevron, SectionTitle } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
-import { formatCents, formatMonthName } from '@/src/format';
+import { formatCents, formatMonthName, formatShortDate } from '@/src/format';
 
 const SEVERITY_LABELS: Record<AnomalySeverity, string> = {
   info: 'Aviso',
@@ -64,13 +65,13 @@ export default function InicioScreen() {
   if (loading && !data) return <LoadingState label="Preparando tu resumen…" />;
   if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
-  const { checking, savings, customer, alerts } = data;
+  const { checking, customer, transactions, alerts } = data;
   const openAlerts = alerts.filter((alert) => !resolvedIds.includes(alert.id));
   const featuredAlert = openAlerts[0] ?? null;
   const remainingAlerts = openAlerts.slice(1);
   // El DataSource ya descuenta las transferencias; restarlas aquí las cobraba dos veces.
   const availableBalanceCents = checking.balance_cents;
-  const savingsTotal = savings.reduce((sum, account) => sum + account.balance_cents, 0);
+  const recentTransactions = transactions.slice(0, 3);
 
   // `at` cambia en cada toque: la pestaña sigue montada y sin él no vería los mismos filtros dos veces.
   function openMovements(params: Record<string, string>) {
@@ -85,111 +86,125 @@ export default function InicioScreen() {
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.accent} />
         }>
-        <Reveal delay={20}>
-          <Text style={[styles.hello, { color: palette.muted }]}>Hola,</Text>
-          <Text style={styles.name}>{firstName ?? customer.first_name}</Text>
+        <Reveal delay={20} style={styles.brandRow}>
+          <BrandLogo />
+          <MotionPressable accessibilityLabel="Bloquear sesión" onPress={lock} style={styles.avatar}>
+            <Text style={[styles.avatarText, { color: palette.muted }]}>DP</Text>
+          </MotionPressable>
         </Reveal>
 
-        <Reveal delay={80}>
-          <HeroCard>
+        <Reveal delay={60}>
+          <Text style={[styles.hello, { color: palette.muted }]}>Hola,</Text>
+          <Text style={styles.name}>{firstName ?? customer.first_name}</Text>
+          <Text style={[styles.welcome, { color: palette.muted }]}>Qué bueno tenerte de vuelta.</Text>
+        </Reveal>
+
+        <Reveal delay={95}>
+          <HeroCard style={styles.balanceCard}>
             <Box style={styles.heroTop}>
-              <Box style={styles.heroLabelRow}>
-                <Text numberOfLines={1} style={[styles.heroLabel, styles.heroLabelText]}>
-                  {checking.nickname} ·· {checking.last_four}
-                </Text>
-                <MotionPressable
-                  accessibilityHint="Muestra tu CLABE y datos para recibir transferencias"
-                  accessibilityRole="button"
-                  onPress={() => router.push({ pathname: '/datos-cuenta', params: { accountId: checking.id } } as never)}
-                  style={styles.dataPill}>
-                  <SymbolView name={{ ios: 'doc.on.doc', android: 'content_copy', web: 'content_copy' }} tintColor="#FFFFFF" size={13} />
-                  <Text style={styles.dataPillLabel}>Mis datos</Text>
-                </MotionPressable>
-              </Box>
-              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>{formatCents(availableBalanceCents)}</Text>
+              <Text style={[styles.heroLabel, { color: palette.muted }]}>Saldo disponible</Text>
+              <Text numberOfLines={1} style={styles.heroAmount}>
+                {formatCents(availableBalanceCents)}
+              </Text>
             </Box>
-            {savings.length > 0 ? (
+            <Box style={styles.balanceFooter}>
+              <Text numberOfLines={1} style={[styles.accountLabel, { color: palette.muted }]}>
+                Cuenta ·· {checking.last_four}
+              </Text>
               <MotionPressable
-                accessibilityHint="Abre tus cuentas de ahorro"
+                accessibilityHint="Muestra tu CLABE y datos para recibir transferencias"
                 accessibilityRole="button"
-                onPress={() => router.push('/ahorro')}
-                style={styles.savingsStrip}>
-                <Box style={styles.savingsIcon}>
-                  <SymbolView name={{ ios: 'arrow.up.right', android: 'north_east', web: 'north_east' }} tintColor="#FFFFFF" size={14} />
-                </Box>
-                <Text numberOfLines={1} style={styles.savingsName}>
-                  {savings.length === 1 ? savings[0].nickname : `Ahorro · ${savings.length} cuentas`}
-                </Text>
-                <Text style={styles.savingsAmount}>{formatCents(savingsTotal)}</Text>
-                <Chevron color="rgba(255,255,255,0.8)" size={12} />
+                onPress={() => router.push({ pathname: '/datos-cuenta', params: { accountId: checking.id } } as never)}
+                style={[styles.eyeButton, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
+                <SymbolView name={{ ios: 'eye.fill', android: 'visibility', web: 'visibility' }} tintColor={palette.muted} size={21} />
               </MotionPressable>
-            ) : null}
+            </Box>
           </HeroCard>
         </Reveal>
 
-        <Reveal delay={115}>
-          <Card style={styles.moneyActionsCard}>
-            <Box style={styles.moneyActions}>
-              <MotionPressable
-                accessibilityRole="button"
-                onPress={() => router.push('/transferencias' as never)}
-                style={[styles.moneyAction, { backgroundColor: palette.accentSoft }]}>
-                <Box style={[styles.moneyActionIcon, { backgroundColor: palette.surface }]}>
-                  <SymbolView
-                    name={{ ios: 'arrow.up.right', android: 'north_east', web: 'north_east' }}
-                    tintColor={palette.accent}
-                    size={20}
-                  />
-                </Box>
-                <Box style={styles.moneyActionCopy}>
-                  <Text style={styles.moneyActionTitle}>Transferir</Text>
-                  <Text style={[styles.moneyActionHint, { color: palette.muted }]}>Enviar dinero</Text>
+        <Reveal delay={130} style={styles.moneyActions}>
+          <MoneyAction
+            label="Transferir"
+            symbol={{ ios: 'arrow.up.right', android: 'north_east', web: 'north_east' }}
+            tint={palette.accent}
+            tone={palette.dangerSoft}
+            onPress={() => router.push('/transferencias' as never)}
+          />
+          <MoneyAction
+            label="Dividir"
+            symbol={{ ios: 'person.2.fill', android: 'groups', web: 'groups' }}
+            tint="#6F91FF"
+            tone="rgba(82,113,218,0.16)"
+            onPress={() => router.push('/dividir-gasto' as never)}
+          />
+          <MoneyAction
+            label="Recibir"
+            symbol={{ ios: 'arrow.down', android: 'south', web: 'south' }}
+            tint={palette.positive}
+            tone={palette.positiveSoft}
+            onPress={() => router.push({ pathname: '/datos-cuenta', params: { accountId: checking.id } } as never)}
+          />
+          <MoneyAction
+            label="Más"
+            symbol={{ ios: 'ellipsis', android: 'more_horiz', web: 'more_horiz' }}
+            tint={palette.muted}
+            tone={palette.surfaceAlt}
+            onPress={() => router.push('/clave-dinamica' as never)}
+          />
+        </Reveal>
+
+        <Reveal delay={165} style={styles.section}>
+          <SectionTitle
+            action={
+              <MotionPressable accessibilityRole="link" hitSlop={8} onPress={() => openMovements({})}>
+                <Box style={styles.sectionAction}>
+                  <Text style={[styles.link, { color: palette.muted }]}>Ver todas</Text>
+                  <Chevron size={11} />
                 </Box>
               </MotionPressable>
-              <MotionPressable
-                accessibilityRole="button"
-                onPress={() => router.push('/dividir-gasto' as never)}
-                style={[styles.moneyAction, { backgroundColor: palette.surfaceMint }]}>
-                <Box style={[styles.moneyActionIcon, { backgroundColor: palette.surface }]}>
-                  <SymbolView
-                    name={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }}
-                    tintColor={palette.positive}
-                    size={20}
-                  />
-                </Box>
-                <Box style={styles.moneyActionCopy}>
-                  <Text style={styles.moneyActionTitle}>Dividir</Text>
-                  <Text style={[styles.moneyActionHint, { color: palette.muted }]}>Por cercanía</Text>
-                </Box>
-              </MotionPressable>
-            </Box>
-            <Box style={[styles.securityStatus, { borderTopColor: palette.border }]}>
-              <Box style={styles.securityCopy}>
-                <SymbolView
-                  name={{ ios: 'lock.shield.fill', android: 'verified_user', web: 'shield' }}
-                  tintColor={palette.positive}
-                  size={16}
-                />
-                <Text style={[styles.securityLabel, { color: palette.muted }]}>Sesión protegida</Text>
-              </Box>
-              <Box style={styles.securityButtons}>
+            }>
+            Transacciones recientes
+          </SectionTitle>
+          <Card style={styles.transactionsCard}>
+            {recentTransactions.map((transaction, index) => {
+              const name = transaction.merchant_display_name ?? transaction.raw_description;
+              const isTransfer = /transfer/i.test(name);
+              return (
                 <MotionPressable
+                  key={transaction.id}
+                  accessibilityHint={`Ver los movimientos de ${name}`}
                   accessibilityRole="button"
-                  onPress={() => router.push('/clave-dinamica' as never)}
-                  style={styles.lockButton}>
-                  <Text style={[styles.lockLabel, { color: palette.accent }]}>Clave dinámica</Text>
+                  onPress={() => openMovements({ q: name })}
+                  pressedScale={0.985}
+                  style={[
+                    styles.transactionRow,
+                    index < recentTransactions.length - 1
+                      ? { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth }
+                      : null,
+                  ]}>
+                  <Box style={[styles.transactionIcon, { backgroundColor: isTransfer ? palette.surfaceAlt : palette.surfaceBlush }]}>
+                    {isTransfer ? (
+                      <SymbolView name={{ ios: 'paperplane.fill', android: 'send', web: 'send' }} tintColor="#D7E0EC" size={19} />
+                    ) : (
+                      <Text style={[styles.transactionInitial, { color: name === 'Netflix' ? palette.accent : palette.warning }]}>
+                        {name.slice(0, 1).toUpperCase()}
+                      </Text>
+                    )}
+                  </Box>
+                  <Box style={styles.transactionCopy}>
+                    <Text numberOfLines={1} style={styles.transactionName}>{name}</Text>
+                    <Text style={[styles.transactionDate, { color: palette.muted }]}>{formatShortDate(transaction.occurred_at)}</Text>
+                  </Box>
+                  <Text style={styles.transactionAmount}>{formatCents(transaction.amount_cents)}</Text>
                 </MotionPressable>
-                <MotionPressable accessibilityRole="button" onPress={lock} style={styles.lockButton}>
-                  <Text style={[styles.lockLabel, { color: palette.accent }]}>Bloquear</Text>
-                </MotionPressable>
-              </Box>
-            </Box>
+              );
+            })}
           </Card>
         </Reveal>
 
         {alerts.length > 0 ? (
           <Reveal delay={165} style={styles.section}>
-            <Card tone="sage" style={styles.alertShell}>
+            <Card style={styles.alertShell}>
               <Box style={styles.alertShellTitle}>
                 <SectionTitle>Para ti</SectionTitle>
               </Box>
@@ -255,7 +270,7 @@ export default function InicioScreen() {
             }>
             Donde más gastas
           </SectionTitle>
-          <Card tone="sage" style={styles.merchantCard}>
+          <Card style={styles.merchantCard}>
             {month.topMerchants.length === 0 ? (
               <Text style={[styles.alertBody, { color: palette.muted }]}>Todavía no hay compras este mes.</Text>
             ) : (
@@ -290,6 +305,33 @@ export default function InicioScreen() {
         </Reveal>
       </ScrollView>
     </PremiumSurface>
+  );
+}
+
+function MoneyAction({
+  label,
+  onPress,
+  symbol,
+  tint,
+  tone,
+}: {
+  label: string;
+  onPress: () => void;
+  symbol: React.ComponentProps<typeof SymbolView>['name'];
+  tint: string;
+  tone: string;
+}) {
+  const palette = usePalette();
+  return (
+    <MotionPressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.moneyAction, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <Box style={[styles.moneyActionIcon, { backgroundColor: tone }]}>
+        <SymbolView name={symbol} tintColor={tint} size={24} />
+      </Box>
+      <Text numberOfLines={1} style={styles.moneyActionTitle}>{label}</Text>
+    </MotionPressable>
   );
 }
 
@@ -415,34 +457,34 @@ function monthSummary(transactions: EnrichedTransaction[]): MonthSummary {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 24, gap: 24, paddingBottom: 138 },
+  content: { paddingHorizontal: 20, paddingTop: 18, gap: 24, paddingBottom: 150 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#12171D', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.13)' },
+  avatarText: { fontSize: 16, fontWeight: '600' },
   hello: { fontSize: 17, lineHeight: 22 },
-  name: { fontSize: 36, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1 },
+  name: { fontSize: 38, lineHeight: 42, fontWeight: '700', letterSpacing: -1.2 },
+  welcome: { marginTop: 4, fontSize: 16, lineHeight: 22 },
+  balanceCard: { minHeight: 220 },
   heroTop: { backgroundColor: 'transparent', gap: 6 },
-  heroLabel: { color: 'rgba(255,255,255,0.82)', fontSize: 15, fontWeight: '600' },
-  heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  heroLabelText: { flex: 1 },
-  dataPill: { minHeight: 32, borderRadius: 999, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.32)' },
-  dataPillLabel: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  heroAmount: { color: '#FFFFFF', fontSize: 42, lineHeight: 48, fontWeight: '700', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
-  savingsStrip: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.28)' },
-  savingsIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)' },
-  savingsName: { flex: 1, color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  savingsAmount: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  moneyActionsCard: { padding: 7, gap: 6 },
-  moneyActions: { flexDirection: 'row', gap: 7, backgroundColor: 'transparent' },
-  moneyAction: { flex: 1, minHeight: 72, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  moneyActionIcon: { width: 36, height: 36, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  moneyActionCopy: { flex: 1, gap: 3, backgroundColor: 'transparent' },
-  moneyActionTitle: { fontSize: 14, fontWeight: '700' },
-  moneyActionHint: { fontSize: 10.5 },
-  securityStatus: { minHeight: 38, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'transparent' },
-  securityCopy: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'transparent' },
-  securityButtons: { flexDirection: 'row', alignItems: 'center' },
-  securityLabel: { fontSize: 11.5, fontWeight: '600' },
-  lockButton: { minHeight: 34, paddingHorizontal: 8, justifyContent: 'center' },
-  lockLabel: { fontSize: 12, fontWeight: '700' },
+  heroLabel: { fontSize: 16, fontWeight: '500' },
+  heroAmount: { color: '#FFFFFF', fontSize: 46, lineHeight: 54, fontWeight: '700', letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
+  balanceFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'transparent' },
+  accountLabel: { fontSize: 15, fontWeight: '500' },
+  eyeButton: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
+  moneyActions: { flexDirection: 'row', gap: 8 },
+  moneyAction: { flex: 1, minHeight: 108, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', gap: 11, borderWidth: StyleSheet.hairlineWidth },
+  moneyActionIcon: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  moneyActionTitle: { fontSize: 13, fontWeight: '600' },
   section: { gap: 0 },
+  sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'transparent' },
+  transactionsCard: { paddingVertical: 6, paddingHorizontal: 16, gap: 0 },
+  transactionRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'transparent' },
+  transactionIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  transactionInitial: { fontSize: 24, fontWeight: '800' },
+  transactionCopy: { flex: 1, gap: 4, backgroundColor: 'transparent' },
+  transactionName: { fontSize: 16, fontWeight: '600' },
+  transactionDate: { fontSize: 13 },
+  transactionAmount: { fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
   stack: { gap: 12, backgroundColor: 'transparent' },
   link: { fontSize: 14, fontWeight: '600' },
   alertShell: { padding: 8 },

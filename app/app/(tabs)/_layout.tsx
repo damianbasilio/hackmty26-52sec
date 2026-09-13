@@ -21,10 +21,10 @@ type TabSpec = {
 
 const TABS: TabSpec[] = [
   { name: 'index', title: 'Inicio', symbol: { ios: 'house.fill', android: 'home', web: 'home' } },
-  { name: 'movimientos', title: 'Movimientos', symbol: { ios: 'list.bullet', android: 'list', web: 'list' } },
+  { name: 'movimientos', title: 'Tarjeta', symbol: { ios: 'creditcard.fill', android: 'credit_card', web: 'credit_card' } },
   { name: 'suscripciones', title: 'Suscrip.', symbol: { ios: 'arrow.triangle.2.circlepath', android: 'autorenew', web: 'autorenew' } },
-  { name: 'salud', title: 'Salud', symbol: { ios: 'gauge.medium', android: 'speed', web: 'speed' } },
-  { name: 'ahorro', title: 'Ahorro', symbol: { ios: 'banknote.fill', android: 'savings', web: 'savings' } },
+  { name: 'salud', title: 'Salud', symbol: { ios: 'person.fill', android: 'person', web: 'person' } },
+  { name: 'ahorro', title: 'Ahorro', symbol: { ios: 'wallet.bifold.fill', android: 'account_balance_wallet', web: 'account_balance_wallet' } },
 ];
 
 export default function TabLayout() {
@@ -43,8 +43,8 @@ export default function TabLayout() {
         tabBarStyle: [
           styles.bar,
           {
-            backgroundColor: dark ? 'rgba(16, 24, 33, 0.96)' : 'rgba(255, 253, 249, 0.96)',
-            borderTopColor: dark ? '#34404A' : '#E4E3DD',
+            backgroundColor: '#0E1318',
+            borderTopColor: 'rgba(255,255,255,0.09)',
           },
         ],
       }}>
@@ -98,20 +98,25 @@ function TabIcon({
 const styles = {
   bar: {
     position: 'absolute' as const,
-    height: Platform.OS === 'ios' ? 88 : 72,
+    height: Platform.OS === 'ios' ? 92 : 76,
+    left: 12,
+    right: 12,
+    bottom: Platform.OS === 'ios' ? 8 : 10,
+    borderRadius: 30,
     borderTopWidth: 0.5,
-    paddingTop: 8,
+    paddingTop: 10,
+    overflow: 'hidden' as const,
     ...Platform.select({
       ios: {
-        shadowColor: '#001A3D',
+        shadowColor: '#000000',
         shadowOffset: { width: 0, height: -8 },
-        shadowOpacity: 0.05,
-        shadowRadius: 22,
+        shadowOpacity: 0.35,
+        shadowRadius: 28,
       },
       android: { elevation: 12 },
-      default: { boxShadow: '0 -10px 28px rgba(0, 26, 61, 0.06)' },
+      default: { boxShadow: '0 -10px 28px rgba(0, 0, 0, 0.34)' },
     }),
   },
   item: { paddingVertical: 3 },
-  label: { fontSize: 10.5, fontWeight: '600' as const, marginTop: 1 },
+  label: { fontSize: 10.5, fontWeight: '600' as const, marginTop: 2 },
 };

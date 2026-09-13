@@ -110,15 +110,15 @@ export default function DatosCuentaScreen() {
             <MotionPressable
               accessibilityRole="button"
               onPress={() => copy(clabe, 'CLABE')}
-              style={styles.copyHero}>
-              <SymbolView name={{ ios: 'doc.on.doc.fill', android: 'content_copy', web: 'content_copy' }} tintColor="#004977" size={16} />
-              <Text style={styles.copyHeroLabel}>Copiar CLABE</Text>
+              style={[styles.copyHero, { backgroundColor: palette.accentSoft, borderColor: palette.border }]}>
+              <SymbolView name={{ ios: 'doc.on.doc.fill', android: 'content_copy', web: 'content_copy' }} tintColor={palette.accent} size={16} />
+              <Text style={[styles.copyHeroLabel, { color: palette.accent }]}>Copiar CLABE</Text>
             </MotionPressable>
           </HeroCard>
         </Reveal>
 
         <Reveal delay={100}>
-          <Card tone="sage" style={styles.details}>
+          <Card style={styles.details}>
             <DetailRow label="Titular" value={holder} onCopy={() => copy(holder, 'Nombre del titular')} />
             <DetailRow label="Banco" value="Capital One" />
             <DetailRow label="Tipo de cuenta" value={TYPE_LABELS[account.type]} />
@@ -199,15 +199,15 @@ const styles = StyleSheet.create({
   heroLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
   holder: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   clabe: { color: '#FFFFFF', fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: 0.5, fontVariant: ['tabular-nums'], textAlign: 'center' },
-  copyHero: { alignSelf: 'center', minHeight: 40, borderRadius: 999, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFFFF' },
-  copyHeroLabel: { color: '#004977', fontSize: 14, fontWeight: '700' },
+  copyHero: { alignSelf: 'center', minHeight: 40, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  copyHeroLabel: { fontSize: 14, fontWeight: '700' },
   details: { paddingVertical: 4, gap: 0 },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowCopy: { flex: 1, gap: 3 },
   rowLabel: { fontSize: 12, fontWeight: '600' },
   rowValue: { fontSize: 15, fontWeight: '600' },
   copyButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  primaryButton: { minHeight: 56, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  primaryButton: { minHeight: 58, borderRadius: 29, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   primaryLabel: { fontSize: 16, fontWeight: '700' },
   note: { borderRadius: 15, padding: 13, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   noteText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: '600' },

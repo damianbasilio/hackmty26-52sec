@@ -266,7 +266,7 @@ export default function TransferenciasScreen() {
                 disabled={accounts.length < 2}
                 onPress={() => setSourcePickerOpen(true)}
                 pressedScale={0.985}>
-                <Card tone="sage" style={styles.sourceCard}>
+                <Card style={styles.sourceCard}>
                   <View style={[styles.sourceIcon, { backgroundColor: palette.surface }]}>
                     <SymbolView
                       name={{ ios: 'creditcard.fill', android: 'account_balance_wallet', web: 'credit_card' }}
@@ -275,17 +275,22 @@ export default function TransferenciasScreen() {
                     />
                   </View>
                   <View style={styles.sourceCopy}>
-                    <Text style={[styles.sourceMeta, { color: palette.muted }]}>Desde</Text>
                     <Text numberOfLines={1} style={styles.sourceLabel}>{source.nickname} ·· {source.last_four}</Text>
-                    <Text style={[styles.sourceMeta, { color: palette.muted }]}>Disponible {formatCents(availableCents)}</Text>
+                    <View style={styles.sourceMetaRow}>
+                      <Text style={[styles.sourceMeta, { color: palette.muted }]}>Saldo disponible</Text>
+                      <Text numberOfLines={1} style={styles.sourceBalance}>{formatCents(availableCents)}</Text>
+                    </View>
                   </View>
-                  {accounts.length > 1 ? <Chevron direction="down" /> : null}
+                  <View style={styles.sourceSlash} />
                 </Card>
               </MotionPressable>
             </Reveal>
 
             <Reveal delay={50} style={styles.section}>
-              <Text style={styles.sectionTitle}>¿A quién?</Text>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>¿A quién?</Text>
+                <Text style={[styles.sectionLink, { color: palette.muted }]}>Ver todos  ›</Text>
+              </View>
               {payees.length === 0 ? (
                 <Text style={[styles.emptyHint, { color: palette.muted }]}>
                   Todavía no le has transferido a nadie. Escribe los datos de quien recibe y
@@ -304,12 +309,12 @@ export default function TransferenciasScreen() {
                         style={[
                           styles.recipient,
                           {
-                            backgroundColor: selected ? palette.primary : palette.surface,
+                            backgroundColor: selected ? palette.dangerSoft : palette.surface,
                             borderColor: selected ? palette.primary : palette.border,
                           },
                         ]}>
                         <View style={[styles.recipientAvatar, { backgroundColor: avatarTintFor(item.name) }]}>
-                          <Text style={[styles.recipientInitials, { color: '#001A3D' }]}>{initialsFor(item.name)}</Text>
+                          <Text style={[styles.recipientInitials, { color: palette.ink }]}>{initialsFor(item.name)}</Text>
                         </View>
                         <Text numberOfLines={1} style={[styles.recipientName, selected ? styles.selectedText : null]}>
                           {item.account_id ? item.name : item.name.split(' ')[0]}
@@ -330,7 +335,7 @@ export default function TransferenciasScreen() {
                     style={[
                       styles.recipient,
                       {
-                        backgroundColor: addingPayee ? palette.primary : palette.surface,
+                        backgroundColor: addingPayee ? palette.dangerSoft : palette.surface,
                         borderColor: addingPayee ? palette.primary : palette.border,
                       },
                     ]}>
@@ -423,6 +428,7 @@ export default function TransferenciasScreen() {
               onPress={continueToConfirmation}
               style={[styles.primaryButton, { backgroundColor: palette.primary }]}>
               <Text style={[styles.primaryLabel, { color: palette.onPrimary }]}>Continuar</Text>
+              <SymbolView name={{ ios: 'arrow.right', android: 'east', web: 'east' }} tintColor={palette.onPrimary} size={21} />
             </MotionPressable>
           </>
         ) : (
@@ -431,7 +437,7 @@ export default function TransferenciasScreen() {
             style={styles.confirmStack}>
             <Card style={styles.confirmHero}>
               <View style={[styles.confirmAvatar, { backgroundColor: avatarTintFor(recipient?.name ?? '') }]}>
-                <Text style={[styles.confirmInitials, { color: '#001A3D' }]}>
+                <Text style={[styles.confirmInitials, { color: palette.ink }]}>
                   {initialsFor(recipient?.name ?? '')}
                 </Text>
               </View>
@@ -444,7 +450,7 @@ export default function TransferenciasScreen() {
               <Text adjustsFontSizeToFit numberOfLines={1} style={styles.confirmAmount}>{formatCents(amountCents)}</Text>
             </Card>
 
-            <Card tone="sage">
+            <Card>
               <SummaryRow label="Cuenta origen" value={`${source.nickname} ·· ${source.last_four}`} />
               <SummaryRow label="Concepto" value={concept.trim() || 'Transferencia'} />
             </Card>
@@ -526,21 +532,26 @@ function Message({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 52, gap: 18 },
-  header: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 52, gap: 22 },
+  header: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
   headerSpacer: { width: 42 },
-  title: { fontSize: 18, fontWeight: '700' },
-  sourceCard: { minHeight: 86, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 15 },
-  sourceIcon: { width: 46, height: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  sourceCopy: { flex: 1, minWidth: 0, gap: 2, backgroundColor: 'transparent' },
+  title: { fontSize: 19, fontWeight: '700' },
+  sourceCard: { minHeight: 100, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
+  sourceIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  sourceCopy: { flex: 1, minWidth: 0, gap: 6, backgroundColor: 'transparent' },
   sourceLabel: { fontSize: 15, fontWeight: '700' },
-  sourceMeta: { fontSize: 12, fontVariant: ['tabular-nums'] },
+  sourceMeta: { fontSize: 13, fontVariant: ['tabular-nums'] },
+  sourceMetaRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, backgroundColor: 'transparent' },
+  sourceSlash: { position: 'absolute', width: 10, height: 24, borderRadius: 2, top: 17, right: 18, backgroundColor: '#FF3B57', transform: [{ skewX: '-24deg' }] },
+  sourceBalance: { fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   section: { gap: 11 },
-  sectionTitle: { fontSize: 21, fontWeight: '700', letterSpacing: -0.4 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionTitle: { fontSize: 25, fontWeight: '700', letterSpacing: -0.65 },
+  sectionLink: { fontSize: 14, fontWeight: '500' },
   recipientList: { gap: 10, paddingRight: 20 },
-  recipient: { width: 116, minHeight: 126, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 13, justifyContent: 'space-between' },
-  recipientAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  recipient: { width: 112, minHeight: 116, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, padding: 13, alignItems: 'center', justifyContent: 'space-between' },
+  recipientAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   recipientInitials: { fontSize: 16, fontWeight: '700' },
   recipientName: { fontSize: 15, fontWeight: '700' },
   recipientBank: { fontSize: 11 },
@@ -549,18 +560,18 @@ const styles = StyleSheet.create({
   payeeCard: { gap: 0, paddingVertical: 4 },
   payeeInput: { minHeight: 50, fontSize: 15, borderBottomWidth: StyleSheet.hairlineWidth },
   payeeInputLast: { borderBottomWidth: 0 },
-  amountCard: { gap: 8 },
-  amountLabel: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: 'transparent' },
+  amountCard: { minHeight: 214, gap: 9 },
+  amountLabel: { fontSize: 15, fontWeight: '500' },
+  amountField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 2, backgroundColor: 'transparent' },
   currency: { fontWeight: '600' },
-  amountInput: { minWidth: 90, flexShrink: 1, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'], textAlign: 'center', paddingVertical: 0 },
-  amountPreview: { fontSize: 12, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  amountInput: { minWidth: 130, flexShrink: 1, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'], paddingVertical: 0 },
+  amountPreview: { fontSize: 12, fontVariant: ['tabular-nums'] },
   divider: { height: StyleSheet.hairlineWidth },
-  conceptInput: { minHeight: 42, fontSize: 15, textAlign: 'center' },
+  conceptInput: { minHeight: 50, fontSize: 15 },
   message: { borderRadius: 15, paddingHorizontal: 14, paddingVertical: 11 },
   messageText: { fontSize: 13, lineHeight: 18, fontWeight: '600', textAlign: 'center' },
-  primaryButton: { minHeight: 58, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  primaryLabel: { fontSize: 16, fontWeight: '700' },
+  primaryButton: { minHeight: 60, borderRadius: 30, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14 },
+  primaryLabel: { fontSize: 17, fontWeight: '700' },
   secondaryButton: { minHeight: 52, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   secondaryLabel: { fontSize: 15, fontWeight: '700' },
   successActions: { alignSelf: 'stretch', gap: 10 },
