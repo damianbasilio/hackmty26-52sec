@@ -709,6 +709,26 @@ begin
 
   if target_customer is not null then
     update customers c set auth_user_id = new.id where c.id = target_customer;
+  else
+    -- Nobody to claim: a fresh signup gets its own empty customer and checking
+    -- account, or every RLS read and split insert fails for it.
+    target_customer := 'cus_' || replace(new.id::text, '-', '');
+    insert into customers (id, auth_user_id, first_name, last_name, email)
+    values (
+      target_customer,
+      new.id,
+      coalesce(nullif(trim(new.raw_user_meta_data ->> 'first_name'), ''), split_part(new.email, '@', 1)),
+      coalesce(trim(new.raw_user_meta_data ->> 'last_name'), ''),
+      new.email
+    );
+    insert into accounts (id, customer_id, nickname, type, last_four)
+    values (
+      'acc_checking_' || replace(new.id::text, '-', ''),
+      target_customer,
+      'Cuenta de cheques',
+      'checking',
+      lpad((abs(hashtext(new.id::text)) % 10000)::text, 4, '0')
+    );
   end if;
   return new;
 exception when others then

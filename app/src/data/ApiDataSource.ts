@@ -252,6 +252,15 @@ export class ApiDataSource implements DataSource {
     const supabase = getSupabase();
     const createdBy = await this.currentCustomerId();
     const splitId = newId('spl');
+    // ponytail: el engine sirve un solo cliente, así que su accountId puede no
+    // ser tuyo y la RLS rechazaría el insert. Se valida contra tus cuentas reales.
+    const { data: ownAccounts, error: accountsError } = await supabase.from('accounts').select('id, type');
+    if (accountsError) fail(accountsError, 'No pudimos leer tus cuentas.');
+    const own = ownAccounts ?? [];
+    const chargeAccountId = own.some((account) => account.id === accountId)
+      ? accountId
+      : (own.find((account) => account.type === 'checking') ?? own[0])?.id;
+    if (!chargeAccountId) throw new Error('No hay ninguna cuenta para cargar tu parte.');
 
     // El índice único parcial sobre `code` solo cubre divisiones abiertas, así
     // que un choque es posible y esperado: se reintenta con otro código.
@@ -261,7 +270,7 @@ export class ApiDataSource implements DataSource {
         .from('split_requests')
         .insert({
           id: splitId,
-          account_id: accountId,
+          account_id: chargeAccountId,
           created_by: createdBy,
           title: title ?? '',
           total_cents: totalCents,
