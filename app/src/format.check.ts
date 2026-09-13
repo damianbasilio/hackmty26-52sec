@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { CHUNK_SIZE, joinChunks, splitIntoChunks } from './chunk.ts';
 import { sharesFor } from './data/shares.ts';
-import { moneyInputToCents, normalizeMoneyInput, withCents } from './moneyInput.ts';
+import { clabeCheckDigit, demoClabe, formatClabe, isValidClabe } from './clabe.ts';
+import { moneyInputToCents, moneyMaxLength, normalizeMoneyInput, withCents } from './moneyInput.ts';
 import { bytesToHex, secondsLeft, sha1, totp } from './totp.ts';
 import {
   daysFromToday,
@@ -45,6 +46,20 @@ assert.equal(withCents('150'), '150.00');
 assert.equal(withCents('1.5'), '1.50');
 assert.equal(withCents('12.'), '12.00');
 assert.equal(withCents(''), '');
+// Con dos centavos el campo se llena: el tercero ya no entra.
+assert.equal(moneyMaxLength('150.25'), '150.25'.length);
+assert.equal(moneyMaxLength('150.2'), 6);
+assert.equal(moneyMaxLength('150'), 10);
+
+// CLABE: ejemplo publicado de Banxico/Wikipedia y las de demostración.
+assert.ok(isValidClabe('032180000118359719'));
+assert.ok(!isValidClabe('032180000118359718'));
+assert.equal(clabeCheckDigit('03218000011835971'), 9);
+const clabe = demoClabe('acc_checking_0001', '4821');
+assert.ok(isValidClabe(clabe));
+assert.ok(clabe.slice(13, 17) === '4821');
+assert.equal(demoClabe('acc_checking_0001', '4821'), clabe);
+assert.equal(formatClabe(clabe).replace(/ /g, ''), clabe);
 
 assert.equal(moneyInputToCents(''), 0);
 assert.equal(moneyInputToCents('0'), 0);

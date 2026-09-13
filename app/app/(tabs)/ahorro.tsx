@@ -1,8 +1,9 @@
 import { SymbolView } from 'expo-symbols';
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Platform, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import type { Account, SavingsRule } from '@contracts/types';
+import type { Account, SavingsRule, SavingsRuleKind } from '@contracts/types';
 
 import { useBanking } from '@/components/BankingProvider';
 import { Card } from '@/components/Card';
@@ -13,17 +14,48 @@ import { ErrorState, LoadingState } from '@/components/ScreenState';
 import { Text } from '@/components/Themed';
 import { SAVINGS_KIND_LABELS } from '@/components/display';
 import { usePalette } from '@/components/palette';
-import { Banner, Chevron, Chip, Collapsible, EmptyState, SectionTitle } from '@/components/ui';
+import { markSubscription } from '@/components/subscriptionMarks';
+import { Chevron, Chip, Collapsible, EmptyState, SectionTitle, Toast } from '@/components/ui';
 import { useAsync } from '@/components/useAsync';
 import { dataSource } from '@/src/data';
 import { formatCents } from '@/src/format';
 
 type Notice = { tone: 'danger' | 'positive'; text: string };
 
+/** Qué pasa al tocar el botón. Sin esto "Activar regla" no decía nada. */
+const HOW_IT_WORKS: Record<SavingsRuleKind, string> = {
+  round_up: 'Cada compra se redondea y la diferencia se aparta sola en tu cuenta de ahorro.',
+  fixed_recurring: 'Movemos el monto indicado a tu cuenta de ahorro con esa frecuencia.',
+  percent_of_income: 'Cada vez que recibas un ingreso apartamos ese porcentaje en tu ahorro.',
+  cancel_subscription: 'No podemos cancelar por ti. Te dejamos un recordatorio con los pasos para cancelarla antes del próximo cobro.',
+  spend_cap: 'Te avisamos cuando tu gasto del mes en esa categoría pase del tope. No bloquea tus compras.',
+};
+
+const ACTIVATE_LABELS: Record<SavingsRuleKind, string> = {
+  round_up: 'Activar redondeo',
+  fixed_recurring: 'Activar apartado',
+  percent_of_income: 'Activar regla',
+  cancel_subscription: 'Recordarme cancelar',
+  spend_cap: 'Activar tope',
+};
+
+const ACTIVE_LABELS: Record<SavingsRuleKind, string> = {
+  round_up: 'Activa',
+  fixed_recurring: 'Activa',
+  percent_of_income: 'Activa',
+  cancel_subscription: 'Recordatorio',
+  spend_cap: 'Tope activo',
+};
+
+/** Tiempo para ver el botón en verde antes de que la regla pase a "activas". */
+const DONE_MS = 1200;
+
 export default function AhorroScreen() {
   const palette = usePalette();
+  const router = useRouter();
   const { reload: reloadBanking } = useBanking();
   const [activating, setActivating] = useState<string | null>(null);
+  const [doneId, setDoneId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [showMore, setShowMore] = useState(false);
   const [showActiveDetail, setShowActiveDetail] = useState(false);
@@ -37,7 +69,7 @@ export default function AhorroScreen() {
     if (!checking) throw new Error('No hay cuentas disponibles.');
     const savings = accounts.filter((account) => account.type === 'savings');
     const rules = await dataSource.getSavingsRules(checking.id);
-    return { savings, rules };
+    return { checking, savings, rules };
   });
 
   const dismissNotice = useCallback(() => setNotice(null), []);
@@ -45,7 +77,7 @@ export default function AhorroScreen() {
   if (loading && !data) return <LoadingState label="Cargando tus reglas…" />;
   if (error || !data) return <ErrorState message={error ?? 'Sin datos.'} onRetry={reload} />;
 
-  const { savings } = data;
+  const { checking, savings } = data;
   const active = data.rules.filter((rule) => rule.status !== 'suggested');
   const suggested = data.rules.filter((rule) => rule.status === 'suggested');
   const featured = suggested[0] ?? null;
@@ -61,10 +93,43 @@ export default function AhorroScreen() {
     return savings.find((account) => account.id === accountId)?.nickname ?? null;
   }
 
+  function openSubscription(rule: SavingsRule) {
+    router.push({
+      pathname: '/suscripciones',
+      params: rule.subscription_id ? { expand: rule.subscription_id, at: String(Date.now()) } : {},
+    } as never);
+  }
+
+  function finish(ruleId: string, then?: () => void) {
+    setDoneId(ruleId);
+    setTimeout(() => {
+      setDoneId(null);
+      reload();
+      then?.();
+    }, DONE_MS);
+  }
+
+  async function remindCancel(rule: SavingsRule) {
+    setNotice(null);
+    setActivating(rule.id);
+    if (rule.subscription_id) markSubscription(rule.subscription_id, { cancelPending: true, usage: 'not_using' });
+    try {
+      await dataSource.activateSavingsRule(rule.id, rule.destination_account_id ?? savings[0]?.id ?? checking.id);
+    } catch {
+      // El recordatorio ya quedó en el teléfono; la regla solo lo refleja en el engine.
+    }
+    setActivating(null);
+    finish(rule.id, () => openSubscription(rule));
+  }
+
   async function activate(rule: SavingsRule) {
+    if (rule.kind === 'cancel_subscription') {
+      await remindCancel(rule);
+      return;
+    }
     const destination = chosenDestination?.id ?? rule.destination_account_id ?? savings[0]?.id;
     if (!destination) {
-      setNotice({ tone: 'danger', text: 'Abre una cuenta de ahorro para activar esta regla.' });
+      setNotice({ tone: 'danger', text: 'Primero abre una cuenta de ahorro: ahí caerá lo que aparte esta regla.' });
       setNewAccountOpen(true);
       return;
     }
@@ -74,9 +139,13 @@ export default function AhorroScreen() {
       await dataSource.activateSavingsRule(rule.id, destination);
       setNotice({
         tone: 'positive',
-        text: `Activamos «${rule.title}». El dinero irá a ${accountName(destination) ?? 'tu ahorro'}.`,
+        text: rule.kind === 'spend_cap'
+          ? rule.amount_cents !== null
+            ? `Tope activado. Te avisaremos cuando pases de ${formatCents(rule.amount_cents)} en el mes.`
+            : 'Tope activado. Te avisaremos cuando lo pases.'
+          : `Activamos «${rule.title}». Lo que aparte irá a ${accountName(destination) ?? 'tu ahorro'}.`,
       });
-      reload();
+      finish(rule.id);
     } catch (caught: unknown) {
       setNotice({ tone: 'danger', text: caught instanceof Error ? caught.message : 'No pudimos activar la regla.' });
     } finally {
@@ -141,7 +210,7 @@ export default function AhorroScreen() {
                   <SymbolView name={{ ios: 'checkmark.seal.fill', android: 'verified', web: 'verified' }} tintColor={palette.positive} size={20} />
                 </View>
                 <Text numberOfLines={1} style={styles.activeTitle}>{primaryActive.title}</Text>
-                <Chip label="Activa" tone={{ background: palette.positiveSoft, color: palette.positive }} />
+                <Chip label={ACTIVE_LABELS[primaryActive.kind]} tone={{ background: palette.positiveSoft, color: palette.positive }} />
                 <Chevron direction={showActiveDetail ? 'down' : 'right'} />
               </MotionPressable>
             ) : null}
@@ -163,16 +232,6 @@ export default function AhorroScreen() {
               </Text>
             </Card>
           </Collapsible>
-        ) : null}
-
-        {notice ? (
-          <Banner
-            key={notice.text}
-            text={notice.text}
-            tone={notice.tone}
-            autoHideMs={notice.tone === 'positive' ? 5000 : 7000}
-            onDismiss={dismissNotice}
-          />
         ) : null}
 
         <Reveal delay={90} style={styles.section}>
@@ -250,6 +309,7 @@ export default function AhorroScreen() {
             <FeaturedRule
               rule={featured}
               busy={activating === featured.id}
+              done={doneId === featured.id}
               onActivate={() => activate(featured)}
             />
 
@@ -273,6 +333,7 @@ export default function AhorroScreen() {
                     key={rule.id}
                     rule={rule}
                     busy={activating === rule.id}
+                    done={doneId === rule.id}
                     onActivate={() => activate(rule)}
                   />
                 ))}
@@ -291,12 +352,27 @@ export default function AhorroScreen() {
             <SectionTitle>Otras reglas activas</SectionTitle>
             <View style={styles.stack}>
               {additionalActive.map((rule) => (
-                <CompactRule key={rule.id} rule={rule} destination={accountName(rule.destination_account_id)} />
+                <CompactRule
+                  key={rule.id}
+                  rule={rule}
+                  destination={rule.kind === 'cancel_subscription' ? null : accountName(rule.destination_account_id)}
+                  onOpen={rule.kind === 'cancel_subscription' ? () => openSubscription(rule) : undefined}
+                />
               ))}
             </View>
           </Reveal>
         ) : null}
       </ScrollView>
+
+      {notice ? (
+        <Toast
+          key={notice.text}
+          text={notice.text}
+          tone={notice.tone}
+          autoHideMs={notice.tone === 'positive' ? 4500 : 7000}
+          onDismiss={dismissNotice}
+        />
+      ) : null}
     </PremiumSurface>
   );
 }
@@ -340,13 +416,65 @@ function SavingsAccountRow({
   );
 }
 
+function ActivateButton({
+  rule,
+  busy,
+  done,
+  compact = false,
+  onPress,
+}: {
+  rule: SavingsRule;
+  busy: boolean;
+  done: boolean;
+  compact?: boolean;
+  onPress: () => void;
+}) {
+  const palette = usePalette();
+  const label = done
+    ? rule.kind === 'cancel_subscription' ? 'Recordatorio creado' : 'Activada'
+    : busy
+      ? 'Activando…'
+      : ACTIVATE_LABELS[rule.kind];
+  return (
+    <MotionPressable
+      accessibilityRole="button"
+      accessibilityState={{ busy, disabled: busy || done }}
+      disabled={busy || done}
+      onPress={onPress}
+      pressedScale={0.975}
+      style={[
+        compact ? styles.smallButton : styles.activateButton,
+        { backgroundColor: done ? palette.positiveSoft : palette.primary, opacity: busy ? 0.65 : 1 },
+      ]}>
+      {done ? (
+        <SymbolView name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }} tintColor={palette.positive} size={compact ? 15 : 18} />
+      ) : null}
+      <Text style={[compact ? styles.smallButtonLabel : styles.activateLabel, { color: done ? palette.positive : palette.onPrimary }]}>
+        {label}
+      </Text>
+    </MotionPressable>
+  );
+}
+
+function HowItWorks({ kind }: { kind: SavingsRuleKind }) {
+  const palette = usePalette();
+  return (
+    <View style={[styles.howBox, { backgroundColor: palette.surfaceAlt }]}>
+      <SymbolView name={{ ios: 'info.circle.fill', android: 'info', web: 'info' }} tintColor={palette.accent} size={15} />
+      <Text style={[styles.howText, { color: palette.muted }]}>{HOW_IT_WORKS[kind]}</Text>
+    </View>
+  );
+}
+
 function FeaturedRule({
   rule,
   busy,
+  done,
   onActivate,
 }: {
   rule: SavingsRule;
   busy: boolean;
+  done: boolean;
   onActivate: () => void;
 }) {
   const palette = usePalette();
@@ -365,14 +493,8 @@ function FeaturedRule({
           </View>
         </View>
         <Text style={[styles.detailCopy, { color: palette.muted }]}>{rule.description}</Text>
-        <MotionPressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={onActivate}
-          pressedScale={0.975}
-          style={[styles.activateButton, { backgroundColor: palette.primary, opacity: busy ? 0.65 : 1 }]}>
-          <Text style={[styles.activateLabel, { color: palette.onPrimary }]}>{busy ? 'Activando…' : 'Activar regla'}</Text>
-        </MotionPressable>
+        <HowItWorks kind={rule.kind} />
+        <ActivateButton rule={rule} busy={busy} done={done} onPress={onActivate} />
       </View>
     </Card>
   );
@@ -381,22 +503,27 @@ function FeaturedRule({
 function CompactRule({
   rule,
   busy = false,
+  done = false,
   destination = null,
   onActivate,
+  onOpen,
 }: {
   rule: SavingsRule;
   busy?: boolean;
+  done?: boolean;
   destination?: string | null;
   onActivate?: () => void;
+  onOpen?: () => void;
 }) {
   const palette = usePalette();
-  return (
+  const card = (
     <Card tone={onActivate ? 'sage' : 'mint'} style={styles.compactRule}>
       <View style={styles.compactHead}>
         <Text style={styles.compactTitle}>{rule.title}</Text>
         <Chip label={SAVINGS_KIND_LABELS[rule.kind]} />
       </View>
       <Text style={[styles.detailCopy, { color: palette.muted }]}>{rule.description}</Text>
+      {onActivate ? <HowItWorks kind={rule.kind} /> : null}
       {destination ? <Text style={[styles.detailCopy, { color: palette.muted }]}>Destino: {destination}</Text> : null}
       <View style={styles.compactFooter}>
         <Text style={[styles.detailMetric, { color: onActivate ? palette.ink : palette.positive }]}>
@@ -404,18 +531,19 @@ function CompactRule({
           {onActivate ? ' al año' : ' ahorrados'}
         </Text>
         {onActivate ? (
-          <MotionPressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={onActivate}
-            style={[styles.smallButton, { backgroundColor: palette.primary, opacity: busy ? 0.65 : 1 }]}>
-            <Text style={[styles.smallButtonLabel, { color: palette.onPrimary }]}>{busy ? 'Activando…' : 'Activar'}</Text>
-          </MotionPressable>
+          <ActivateButton compact rule={rule} busy={busy} done={done} onPress={onActivate} />
         ) : (
-          <Chip label="Activa" tone={{ background: palette.positiveSoft, color: palette.positive }} />
+          <Chip label={ACTIVE_LABELS[rule.kind]} tone={{ background: palette.positiveSoft, color: palette.positive }} />
         )}
       </View>
+      {onOpen ? <Text style={[styles.openLink, { color: palette.accent }]}>Ver pasos para cancelar</Text> : null}
     </Card>
+  );
+  if (!onOpen) return card;
+  return (
+    <MotionPressable accessibilityRole="button" onPress={onOpen} pressedScale={0.985}>
+      {card}
+    </MotionPressable>
   );
 }
 
@@ -470,18 +598,21 @@ const styles = StyleSheet.create({
   featuredCopy: { flex: 1, gap: 5 },
   featuredTitle: { fontSize: 17, lineHeight: 22, fontWeight: '700', letterSpacing: -0.28 },
   featuredImpact: { fontSize: 13, lineHeight: 18 },
-  activateButton: { minHeight: 52, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  activateLabel: { fontSize: 16, fontWeight: '600' },
+  howBox: { borderRadius: 13, padding: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  howText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  activateButton: { minHeight: 52, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  activateLabel: { fontSize: 16, fontWeight: '700' },
   moreButton: { minHeight: 58, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
   moreLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
   stack: { gap: 10 },
   detailTitle: { fontSize: 16, fontWeight: '700' },
   detailCopy: { fontSize: 13, lineHeight: 19 },
   detailMetric: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  compactRule: { gap: 13 },
+  compactRule: { gap: 12 },
   compactHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   compactTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '700' },
   compactFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  smallButton: { minHeight: 38, borderRadius: 13, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
-  smallButtonLabel: { fontSize: 13, fontWeight: '600' },
+  smallButton: { minHeight: 38, borderRadius: 13, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  smallButtonLabel: { fontSize: 13, fontWeight: '700' },
+  openLink: { fontSize: 13, fontWeight: '700', textAlign: 'center' },
 });

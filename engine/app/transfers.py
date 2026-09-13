@@ -34,7 +34,7 @@ from .enrichment import format_mxn
 TRANSFER_REF = nessie_sync.TRANSFER_REF
 # Client-generated idempotency keys: transfers, splits and participants.
 ID_PATTERN = r"^[A-Za-z0-9_-]{8,80}$"
-# nessie_sync._map_account ids every synced account this way; anything else is fixture data
+# nessie_sync.map_account ids every synced account this way; anything else is fixture data
 _NESSIE_ACCOUNT_ID_PREFIX = "acc_nessie_"
 
 
