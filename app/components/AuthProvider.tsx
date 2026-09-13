@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 
 import { Text } from '@/components/Themed';
@@ -314,8 +315,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const { data, error } = await supabase.auth.signUp({
         email: input.email.trim().toLowerCase(),
         password: input.password,
-        // handle_new_auth_user() liga la cuenta a un customer existente por correo.
-        options: { data: { first_name: input.firstName.trim(), last_name: input.lastName.trim() } },
+        // handle_new_auth_user() liga la cuenta a un customer existente o crea uno.
+        options: {
+          data: { first_name: input.firstName.trim(), last_name: input.lastName.trim() },
+          // Sin esto el correo usa el Site URL de Supabase (localhost). Debe estar
+          // en Authentication -> URL Configuration -> Redirect URLs.
+          emailRedirectTo: Linking.createURL('sign-in'),
+        },
       });
       if (error) return { ok: false, message: describeSupabaseError(error) };
       // Con la protección contra enumeración, un correo ya registrado regresa
