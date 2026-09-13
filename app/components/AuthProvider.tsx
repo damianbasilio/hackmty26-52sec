@@ -8,7 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
@@ -136,7 +136,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setBiometricsAvailable(available);
         setBiometricSignInEnabled(available && trustedDevice === 'enabled');
         if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-          setBiometricLabel('Face ID');
+          // Face ID es de Apple: en Android el mismo tipo es el desbloqueo facial.
+          setBiometricLabel(Platform.OS === 'ios' ? 'Face ID' : 'reconocimiento facial');
         } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
           setBiometricLabel('huella');
         }
